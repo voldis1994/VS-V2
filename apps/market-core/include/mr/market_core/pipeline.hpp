@@ -43,6 +43,7 @@ public:
     std::vector<TradeIntent> drain_pending_intents();
     [[nodiscard]] TelemetryHub& telemetry() { return telemetry_; }
     [[nodiscard]] const StructureEngine& structure() const { return structure_; }
+    [[nodiscard]] BrainSnapshot brain_snapshot() const { return brain_.snapshot(); }
     [[nodiscard]] bool has_account_equity() const { return account_equity_.has_value(); }
 
 private:

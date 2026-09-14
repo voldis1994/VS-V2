@@ -25,3 +25,7 @@ add_test(NAME test_live_multi_clock COMMAND test_live_multi_clock)
 add_executable(test_stage2_runtime test_stage2_runtime.cpp)
 target_link_libraries(test_stage2_runtime PRIVATE mr::market-core GTest::gtest GTest::gtest_main)
 add_test(NAME test_stage2_runtime COMMAND test_stage2_runtime)
+
+add_executable(test_structure_brain test_structure_brain.cpp)
+target_link_libraries(test_structure_brain PRIVATE mr::market-core mr::structure-engine mr::market-concepts GTest::gtest GTest::gtest_main)
+add_test(NAME test_structure_brain COMMAND test_structure_brain)

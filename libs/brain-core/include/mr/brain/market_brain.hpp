@@ -1,9 +1,12 @@
 #pragma once
+
 #include "mr/brain/brain_state.hpp"
 #include "mr/brain/brain_event_router.hpp"
 #include "mr/brain/brain_snapshot.hpp"
 #include "mr/candle_engine/candle_engine.hpp"
 #include "mr/feed_fusion/feed_fusion_engine.hpp"
+#include "mr/structure_engine/structure_features.hpp"
+#include "mr/market_concepts/regime_features.hpp"
 #include "mr/market_types/market_event.hpp"
 #include "mr/market_types/market_clock.hpp"
 #include <unordered_map>
@@ -14,7 +17,15 @@ namespace mr {
 class MarketBrain {
 public:
     /** Drive quote clock; returns forming / closed-10s / derived-1m clock events. */
-    std::vector<MarketClockEvent> on_normalized(const NormalizedEvent& e, const ConsensusQuote& consensus);
+    std::vector<MarketClockEvent> on_normalized(const NormalizedEvent& e,
+                                                const ConsensusQuote& consensus);
+
+    /** Authority CLOSED 1m+ — only path that mutates structure/regime in BrainState. */
+    void apply_authority_structure(InstrumentId instrument,
+                                   const StructureFeatures& structure,
+                                   const RegimeFeatures& regime,
+                                   Timestamp ts);
+
     [[nodiscard]] BrainSnapshot snapshot() const;
     [[nodiscard]] CandleEngine& candles(InstrumentId inst);
     BrainEventRouter& router() { return router_; }

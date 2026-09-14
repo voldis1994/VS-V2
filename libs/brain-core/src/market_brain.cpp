@@ -14,9 +14,9 @@ std::vector<MarketClockEvent> MarketBrain::on_normalized(const NormalizedEvent& 
     ctx.consensus = consensus;
     ctx.candles = ce.state();
     ctx.ts = e.normalized_timestamp;
+    // has_structure_authority stays false — update() preserves prior structure.
     state_.update(ctx);
 
-    // Publish typed brain events — quote vs closed are distinct.
     BrainEvent quote_ev;
     quote_ev.type = BrainEventType::Quote;
     quote_ev.ts = e.normalized_timestamp;
@@ -41,6 +41,20 @@ std::vector<MarketClockEvent> MarketBrain::on_normalized(const NormalizedEvent& 
         }
     }
     return clock_events;
+}
+
+void MarketBrain::apply_authority_structure(InstrumentId instrument,
+                                            const StructureFeatures& structure,
+                                            const RegimeFeatures& regime,
+                                            Timestamp ts) {
+    state_.apply_authority(instrument, structure, regime, ts);
+
+    BrainEvent closed;
+    closed.type = BrainEventType::CandleClosed;
+    closed.ts = ts;
+    closed.instrument = instrument;
+    closed.payload = "STRUCTURE_AUTHORITY";
+    router_.publish(closed);
 }
 
 BrainSnapshot MarketBrain::snapshot() const {

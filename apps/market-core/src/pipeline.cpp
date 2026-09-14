@@ -47,6 +47,8 @@ void MarketCorePipeline::process_authority_ohlc(const Candle& closed, Timeframe 
         if (!is_structure_authority(ev) || !ev.candle.has_value()) continue;
         structure_.on_authority_close(*ev.candle, ev.timeframe, pd);
         auto st = structure_.snapshot();
+        auto rg = concepts_.evaluate(pd, st);
+        brain_.apply_authority_structure(ev.instrument, st, rg, ev.ts);
         ConsensusQuote consensus;
         consensus.mid = ev.candle->close;
         consensus.spread = 0;
@@ -78,7 +80,10 @@ void MarketCorePipeline::handle_clock_events(const std::vector<MarketClockEvent>
                 // Quote-derived closes are not Capital authority; ignore for structure.
                 if (ev.structure_authority && ev.candle.has_value()) {
                     structure_.on_authority_close(*ev.candle, ev.timeframe, pd);
-                    run_decision_and_risk(structure_.snapshot(), pd, consensus, instrument);
+                    auto st = structure_.snapshot();
+                    auto rg = concepts_.evaluate(pd, st);
+                    brain_.apply_authority_structure(instrument, st, rg, ev.ts);
+                    run_decision_and_risk(st, pd, consensus, instrument);
                 }
                 break;
         }
