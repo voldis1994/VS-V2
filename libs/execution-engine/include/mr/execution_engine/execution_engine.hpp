@@ -1,17 +1,45 @@
 #pragma once
-#include "mr/execution_engine/capital_executor.hpp"
+#include "mr/execution_engine/order_gateway.hpp"
+#include "mr/execution_engine/order_builder.hpp"
 #include "mr/execution_engine/fill_tracker.hpp"
-#include "mr/execution_engine/retry_policy.hpp"
-#include "mr/execution_engine/reconciliation.hpp"
-#include "mr/risk_engine/risk_engine.hpp"
+#include "mr/execution_engine/execution_weight_config.hpp"
+#include "mr/execution_engine/execution_types.hpp"
+#include "mr/decision/trade_decision.hpp"
+#include <unordered_map>
+
 namespace mr {
+
+/**
+ * ExecutionEngine — Capital BUY/SELL order lifecycle only.
+ * Never chooses trades. Consumes DecisionEngine intents already risk-approved.
+ */
 class ExecutionEngine {
 public:
-    ExecutionEngine(CapitalClient& client, RiskEngine& risk);
-    CapitalOrderResponse submit(const TradeIntent& intent, double quantity);
+    explicit ExecutionEngine(OrderGateway& gateway,
+                             ExecutionWeightConfig cfg = ExecutionWeightConfig::defaults());
+
+    void set_weight_config(ExecutionWeightConfig cfg);
+    [[nodiscard]] const ExecutionWeightConfig& weight_config() const { return cfg_; }
+
+    /** Submit a risk-approved intent. Does not invent side or size policy. */
+    ExecutionReport submit(const TradeIntent& intent, double quantity);
+
+    /** Close via Capital deal id — management path, not a new thesis. */
+    ExecutionReport close(const std::string& deal_id, TradeIntentId intent_id = 0);
+
+    [[nodiscard]] const FillTracker& fills() const { return fills_; }
+    [[nodiscard]] bool was_recent_duplicate(InstrumentId instrument,
+                                            Direction direction,
+                                            Timestamp now) const;
+
 private:
-    CapitalClient& client_; RiskEngine& risk_;
-    OrderBuilder builder_; CapitalExecutor executor_; FillTracker fills_;
-    RetryPolicy retry_; Reconciliation recon_;
+    OrderGateway& gateway_;
+    ExecutionWeightConfig cfg_{};
+    OrderBuilder builder_{};
+    FillTracker fills_{};
+    std::unordered_map<std::uint64_t, Timestamp> recent_submits_{};
+
+    [[nodiscard]] static std::uint64_t dedup_key(InstrumentId instrument, Direction direction);
 };
-}
+
+}  // namespace mr

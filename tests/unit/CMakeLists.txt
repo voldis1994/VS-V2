@@ -45,3 +45,15 @@ target_link_libraries(test_prediction_decision_brain PRIVATE
   GTest::gtest_main)
 add_test(NAME test_prediction_decision_brain COMMAND test_prediction_decision_brain)
 
+
+add_executable(test_risk_execution_position_brain test_risk_execution_position_brain.cpp)
+target_link_libraries(test_risk_execution_position_brain PRIVATE
+  mr::risk-engine
+  mr::execution-engine
+  mr::position-brain
+  mr::brain-core
+  mr::decision-engine
+  mr::prediction-engine
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_risk_execution_position_brain COMMAND test_risk_execution_position_brain)

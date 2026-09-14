@@ -1,5 +1,6 @@
 #pragma once
 #include "mr/capital/capital_order.hpp"
+#include "mr/common/id.hpp"
 #include <vector>
 namespace mr {
 struct FillRecord { CapitalOrderResponse response; Timestamp ts{}; };

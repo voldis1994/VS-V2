@@ -127,6 +127,11 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     RiskRequest req;
     req.intent = intent;
     req.mid_price = consensus.mid > 0 ? consensus.mid : intent.reference_price;
+    // Real spread cost — RiskEngine may veto on cost / width; never invents a default.
+    req.spread = consensus.spread;
+    req.spread_cost = consensus.spread;
+    req.data_fresh = consensus.valid() || consensus.mid > 0;
+    req.broker_healthy = true;
     if (account_equity_.has_value()) {
         req.account_equity = *account_equity_;
     } else {
@@ -134,11 +139,13 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     }
 
     auto risk = risk_.evaluate(req);
+    brain_.apply_risk(instrument, risk, Timestamp{});
     if (!risk.approved) {
         telemetry_.record_decision();
         return;
     }
 
+    risk_.remember_order(intent.instrument, intent.direction, intent.created_at);
     pending_.push_back(intent);
     telemetry_.record_decision();
 }

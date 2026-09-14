@@ -10,5 +10,8 @@ target_link_libraries(mr_brain_core PUBLIC
     mr::market-concepts
     mr::microstructure-engine
     mr::prediction-engine
-    mr::decision-engine)
+    mr::decision-engine
+    mr::risk-engine
+    mr::execution-engine
+    mr::position-brain)
 target_compile_features(mr_brain_core PUBLIC cxx_std_20)

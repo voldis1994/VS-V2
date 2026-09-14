@@ -11,6 +11,9 @@
 #include "mr/prediction_engine/prediction.hpp"
 #include "mr/decision/opportunity.hpp"
 #include "mr/decision/trade_action.hpp"
+#include "mr/risk/risk_decision.hpp"
+#include "mr/execution_engine/execution_types.hpp"
+#include "mr/position_brain/position_types.hpp"
 #include "mr/market_types/market_event.hpp"
 #include "mr/market_types/market_clock.hpp"
 #include <unordered_map>
@@ -44,6 +47,19 @@ public:
     void apply_decision(InstrumentId instrument,
                         const Opportunity& decision,
                         TradeAction action,
+                        Timestamp ts);
+
+    void apply_risk(InstrumentId instrument,
+                    const RiskDecision& risk,
+                    Timestamp ts);
+
+    void apply_execution(InstrumentId instrument,
+                         const ExecutionReport& execution,
+                         Timestamp ts);
+
+    void apply_position(InstrumentId instrument,
+                        const PositionState& position,
+                        const PositionDecision& decision,
                         Timestamp ts);
 
     [[nodiscard]] BrainSnapshot snapshot() const;

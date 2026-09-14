@@ -8,6 +8,9 @@
 #include "mr/prediction_engine/prediction.hpp"
 #include "mr/decision/trade_action.hpp"
 #include "mr/decision/opportunity.hpp"
+#include "mr/risk/risk_decision.hpp"
+#include "mr/execution_engine/execution_types.hpp"
+#include "mr/position_brain/position_types.hpp"
 
 namespace mr {
 
@@ -15,7 +18,7 @@ namespace mr {
  * Single authoritative brain context per instrument.
  * Structure/regime mutate only via Capital CLOSED 1m+ OHLC.
  * Microstructure mutates only via CLOSED 10s one-shot OHLC.
- * Prediction/decision are evidence+choice snapshots — one BrainState.
+ * Prediction/decision/risk/execution/position are snapshots — one BrainState.
  */
 struct BrainContext {
     InstrumentId instrument{kInvalidInstrument};
@@ -27,10 +30,17 @@ struct BrainContext {
     DualPrediction prediction{};
     Opportunity decision{};
     TradeAction decision_action{TradeAction::Wait};
+    RiskDecision risk{};
+    ExecutionReport execution{};
+    PositionState position{};
+    PositionDecision position_decision{};
     bool has_structure_authority{false};
     bool has_micro_authority{false};
     bool has_prediction{false};
     bool has_decision{false};
+    bool has_risk{false};
+    bool has_execution{false};
+    bool has_position{false};
     Timestamp ts{};
 };
 

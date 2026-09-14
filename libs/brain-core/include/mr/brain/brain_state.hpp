@@ -5,6 +5,9 @@
 #include "mr/prediction_engine/prediction.hpp"
 #include "mr/decision/opportunity.hpp"
 #include "mr/decision/trade_action.hpp"
+#include "mr/risk/risk_decision.hpp"
+#include "mr/execution_engine/execution_types.hpp"
+#include "mr/position_brain/position_types.hpp"
 
 namespace mr {
 
@@ -14,29 +17,41 @@ namespace mr {
  */
 class BrainState {
 public:
-    /** Quote-path update — preserves structure/regime/micro/prediction/decision authority. */
+    /** Quote-path update — preserves authority snapshots. */
     void update(const BrainContext& ctx);
 
-    /** Capital CLOSED 1m+ — mutates structure/regime; preserves micro. */
     void apply_authority(InstrumentId instrument,
                          const StructureFeatures& structure,
                          const RegimeFeatures& regime,
                          Timestamp ts);
 
-    /** CLOSED 10s one-shot — mutates micro evidence; never rewrites structure. */
     void apply_micro(InstrumentId instrument,
                      const MicrostructureFeatures& micro,
                      Timestamp ts);
 
-    /** Prediction snapshot into the same BrainState (not an order). */
     void apply_prediction(InstrumentId instrument,
                           const DualPrediction& prediction,
                           Timestamp ts);
 
-    /** DecisionEngine choice snapshot — sole BUY/SELL/WAIT record. */
     void apply_decision(InstrumentId instrument,
                         const Opportunity& decision,
                         TradeAction action,
+                        Timestamp ts);
+
+    /** RiskEngine veto/limit snapshot — never a BUY/SELL/WAIT choice. */
+    void apply_risk(InstrumentId instrument,
+                    const RiskDecision& risk,
+                    Timestamp ts);
+
+    /** ExecutionEngine lifecycle snapshot — never a trading thesis. */
+    void apply_execution(InstrumentId instrument,
+                         const ExecutionReport& execution,
+                         Timestamp ts);
+
+    /** PositionBrain management snapshot — HOLD/PROTECT/REDUCE/EXIT. */
+    void apply_position(InstrumentId instrument,
+                        const PositionState& position,
+                        const PositionDecision& decision,
                         Timestamp ts);
 
     [[nodiscard]] const BrainSnapshot& latest() const { return snapshot_; }

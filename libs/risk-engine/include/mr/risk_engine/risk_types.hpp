@@ -3,8 +3,4 @@
 #include "mr/risk/risk_state.hpp"
 #include "mr/risk/risk_decision.hpp"
 #include "mr/risk/exposure_state.hpp"
-#include <string>
-namespace mr {
-struct SizingResult; // defined in risk_engine.hpp
-struct GuardResult;
-}
+#include "mr/risk/risk_weight_config.hpp"

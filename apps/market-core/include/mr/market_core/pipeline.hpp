@@ -11,6 +11,8 @@
 #include "mr/prediction_engine/prediction_engine.hpp"
 #include "mr/decision_engine/decision_engine.hpp"
 #include "mr/risk/risk_engine.hpp"
+#include "mr/execution_engine/execution_engine.hpp"
+#include "mr/position_brain/position_brain.hpp"
 #include "mr/telemetry/telemetry_hub.hpp"
 #include "mr/brain/brain_version.hpp"
 #include "mr/common/config.hpp"
@@ -70,6 +72,7 @@ private:
     PredictionEngine prediction_;
     DecisionEngine decision_;
     RiskEngine risk_;
+    PositionBrain position_;
     TelemetryHub telemetry_;
     IdGenerator intent_ids_;
     std::vector<TradeIntent> pending_;

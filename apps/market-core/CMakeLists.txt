@@ -25,6 +25,8 @@ target_link_libraries(mr_market_core PUBLIC
     mr::prediction-engine
     mr::decision-engine
     mr::risk-engine
+    mr::execution-engine
+    mr::position-brain
     mr::capital-client
     mr::telemetry
     mr::common

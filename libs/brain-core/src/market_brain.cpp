@@ -83,6 +83,25 @@ void MarketBrain::apply_decision(InstrumentId instrument,
     state_.apply_decision(instrument, decision, action, ts);
 }
 
+void MarketBrain::apply_risk(InstrumentId instrument,
+                             const RiskDecision& risk,
+                             Timestamp ts) {
+    state_.apply_risk(instrument, risk, ts);
+}
+
+void MarketBrain::apply_execution(InstrumentId instrument,
+                                  const ExecutionReport& execution,
+                                  Timestamp ts) {
+    state_.apply_execution(instrument, execution, ts);
+}
+
+void MarketBrain::apply_position(InstrumentId instrument,
+                                 const PositionState& position,
+                                 const PositionDecision& decision,
+                                 Timestamp ts) {
+    state_.apply_position(instrument, position, decision, ts);
+}
+
 BrainSnapshot MarketBrain::snapshot() const {
     return state_.latest();
 }
