@@ -7,13 +7,25 @@ namespace mr {
  * Stage 8 may calibrate from historical decision outcomes.
  */
 struct DecisionWeightConfig {
-    double edge_scale{0.35};        // soft map of relative EV advantage
-    double conflict_scale{0.5};     // soft map of opposing thesis clash
-    double weakness_scale{0.5};     // soft map of insufficient thesis quality
-    double cost_scale{1.0};         // how strongly spread cost reduces net EV
+    double edge_scale{0.35};
+    double conflict_scale{0.5};
+    double weakness_scale{0.5};
+    double cost_scale{1.0};
 
-    // SL/TP placement as fractions of predicted move (execution geometry, not triggers)
+    double w_quality{1.0};
+    double w_continuation{1.0};
+    double weak_quality_weight{1.0};
+    double weak_ev_weight{1.0};
+
+    double stop_adverse_weight{1.0};
+    double stop_vol_weight{1.0};
+    double stop_invalidation_weight{1.0};
+    double stop_distance_scale{1.0};
     double stop_move_frac{1.0};
+
+    double target_expected_weight{1.0};
+    double target_vol_weight{1.0};
+    double target_distance_scale{1.0};
     double target_move_frac{1.0};
 
     static DecisionWeightConfig defaults();

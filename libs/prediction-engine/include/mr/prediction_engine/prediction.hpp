@@ -33,6 +33,10 @@ struct DualPrediction {
     bool has_structure_authority{false};
     bool has_micro_authority{false};
     bool evidence_sufficient{false};
+
+    // Authoritative structure context for Stage-5 geometry (DecisionEngine SL/TP).
+    double structure_volatility{0};
+    double structure_invalidation{0};
 };
 
 /** Legacy single-side prediction payload (scenario consumers / compat). */

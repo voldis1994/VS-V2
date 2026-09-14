@@ -11,5 +11,10 @@ struct Opportunity {
     double spread_cost{0};
     TradeAction action{TradeAction::Wait};
     DecisionReasonCodes reason_codes;
+
+    // Price-fraction geometry derived from structure/vol/invalidation + thesis moves.
+    // Applied in decide(); RiskEngine may still veto/limit in Stage 6.
+    double stop_distance_frac{0};
+    double target_distance_frac{0};
 };
 }

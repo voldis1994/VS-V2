@@ -59,6 +59,10 @@ private:
                           double spread_cost,
                           InstrumentId instrument) const;
 
+    void apply_geometry(Opportunity& opp,
+                        const SidePrediction& side,
+                        const DualPrediction& dual) const;
+
     IdGenerator& ids_;
     DecisionWeightConfig cfg_{};
 };

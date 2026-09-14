@@ -337,6 +337,56 @@ TEST(PredictionDecisionBrain, WeightConfigIsStage8Calibratable) {
     EXPECT_TRUE(s1.buy_score != s2.buy_score || s1.wait_score != s2.wait_score);
 }
 
+TEST(PredictionDecisionBrain, StopTargetFromStructureVolatilityAndInvalidation) {
+    PredictionEngine pred;
+    IdGenerator ids;
+    DecisionEngine decision(ids);
+
+    auto dual = pred.evaluate(bullish_structure(), true, bullish_micro(), {});
+    auto sides = decision.evaluate(dual, 0.05, 1);
+    ASSERT_EQ(sides.final_action, TradeAction::Buy);
+    EXPECT_GT(sides.chosen.stop_distance_frac, 0.0);
+    EXPECT_GT(sides.chosen.target_distance_frac, 0.0);
+
+    // Not the old fixed 0.2% / 0.4% geometry.
+    EXPECT_NE(sides.chosen.stop_distance_frac, 0.002);
+    EXPECT_NE(sides.chosen.target_distance_frac, 0.004);
+
+    auto intent = decision.decide(sides.chosen, valid_quote());
+    ASSERT_EQ(intent.decision, EntryDecision::EntryReady);
+    const double mid = intent.reference_price;
+    ASSERT_GT(mid, 0.0);
+    EXPECT_NEAR(intent.stop_loss, mid * (1.0 - sides.chosen.stop_distance_frac), 1e-9);
+    EXPECT_NEAR(intent.take_profit, mid * (1.0 + sides.chosen.target_distance_frac), 1e-9);
+
+    // Authoritative structure context is carried for geometry.
+    EXPECT_GE(dual.structure_volatility, 0.0);
+    EXPECT_GE(dual.structure_invalidation, 0.0);
+    auto st = bullish_structure();
+    st.structural_invalidation = 0.8;
+    st.volatility = 0.8;
+    auto dual_hi = pred.evaluate(st, true, bullish_micro(), {});
+    EXPECT_GT(dual_hi.structure_volatility, dual.structure_volatility);
+    EXPECT_GT(dual_hi.structure_invalidation, dual.structure_invalidation);
+    // Same dual with higher stop_vol / stop_invalidation weights widens stop (Stage-8).
+    auto cfg_hi = DecisionWeightConfig::defaults();
+    cfg_hi.stop_vol_weight = 3.0;
+    cfg_hi.stop_invalidation_weight = 3.0;
+    DecisionEngine decision_hi(ids, cfg_hi);
+    auto sides_hi = decision_hi.evaluate(dual_hi, 0.05, 1);
+    if (sides_hi.final_action == TradeAction::Buy) {
+        EXPECT_GE(sides_hi.chosen.stop_distance_frac, sides.chosen.stop_distance_frac);
+    }
+
+    // Stage-8 geometry scales are calibratable.
+    auto cfg = DecisionWeightConfig::defaults();
+    cfg.stop_move_frac = 2.0;
+    DecisionEngine decision2(ids, cfg);
+    auto sides2 = decision2.evaluate(dual, 0.05, 1);
+    ASSERT_EQ(sides2.final_action, TradeAction::Buy);
+    EXPECT_NEAR(sides2.chosen.stop_distance_frac, 2.0 * sides.chosen.stop_distance_frac, 1e-9);
+}
+
 TEST(PredictionDecisionBrain, PredictionIsNotAnOrder) {
     PredictionEngine pred;
     auto dual = pred.evaluate(bullish_structure(), true, bullish_micro(), {});
