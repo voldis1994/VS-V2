@@ -36,8 +36,8 @@ import {
   type MultiFeedPrice,
   type MultiFeedLeg,
 } from './robotReader.js';
-import {
 import { marketCoreAuthoritative } from '../config/environment.js';
+import {
   aggregateSecondsToTen,
   emptyTenSecState,
   publicOhlc10s,
@@ -1253,10 +1253,9 @@ async function robotCycle(s: Internal) {
 
     if (s.ohlcState.just_closed && bar) {
       if (marketCoreAuthoritative()) {
-      // C++ market-core owns entry — no parallel TS trading brain.
-      return;
-    }
-    const sig = decideEntryFrom10sRegime(bar, s.regime);
+        // C++ market-core owns entry — no parallel TS trading brain.
+      } else {
+      const sig = decideEntryFrom10sRegime(bar, s.regime);
       if (sig) {
         direction = sig.direction;
         setupType = sig.setup;
@@ -1270,6 +1269,7 @@ async function robotCycle(s: Internal) {
           detail: `${ohlcLine} · ${s.regime} not suitable on this 10s close · wait next candle`,
         });
       }
+      } // end !marketCoreAuthoritative entry branch
     } else {
       pushTick(s, {
         phase: 'WAIT',

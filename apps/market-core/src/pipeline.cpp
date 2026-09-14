@@ -258,7 +258,8 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     req.spread = consensus.spread;
     req.spread_cost = consensus.spread;
     req.data_fresh = consensus.valid() || consensus.mid > 0;
-    req.broker_healthy = broker_healthy();
+    // Pending (no gateway) is allowed; LIVE execution path stays fail-closed on broker health.
+    req.broker_healthy = has_execution() ? broker_healthy() : true;
     if (account_equity_.has_value()) {
         req.account_equity = *account_equity_;
     } else {
@@ -393,7 +394,8 @@ bool MarketCorePipeline::enter_from_decision(const TradeIntent& intent,
     req.spread = spread;
     req.spread_cost = spread;
     req.data_fresh = mid > 0.0;
-    req.broker_healthy = broker_healthy();
+    // Pending (no gateway) is allowed; LIVE execution path stays fail-closed on broker health.
+    req.broker_healthy = has_execution() ? broker_healthy() : true;
     if (account_equity_.has_value()) {
         req.account_equity = *account_equity_;
     } else {
