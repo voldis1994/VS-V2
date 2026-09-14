@@ -18,6 +18,9 @@ namespace mr {
  *   CLOSED 10s → process_closed_10s (one-shot micro authority)
  *   1m+ → process_authority_ohlc (structure authority)
  * Never binds Capital LIVE — paper only.
+ *
+ * Result metrics (decisions/entries/exits/PnL) come from the live replay run —
+ * not from the recorded episode outcome.
  */
 class EpisodeReplay {
 public:
@@ -31,6 +34,15 @@ public:
         std::size_t closed_10s_count{0};
         std::size_t authority_count{0};
         bool used_live_gateway{false};
+
+        /** Production-path counters from this replay (not recorded outcome). */
+        std::size_t decisions{0};
+        std::size_t entry_ready{0};
+        std::size_t entries{0};
+        std::size_t exits{0};
+        double realized_pnl{0.0};
+        double unrealized_pnl{0.0};
+        double total_pnl{0.0};
     };
 
     EpisodeReplay() = default;

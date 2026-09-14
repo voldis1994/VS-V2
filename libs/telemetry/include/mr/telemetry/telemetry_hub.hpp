@@ -45,6 +45,12 @@ public:
     void publish_metrics(const SystemMetrics& metrics, const Clock& time_source);
     void publish_market_state(const nlohmann::json& state);
     [[nodiscard]] SystemMetrics metrics() const;
+    [[nodiscard]] std::uint64_t decision_count() const {
+        return decision_count_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] std::uint64_t event_count() const {
+        return event_count_.load(std::memory_order_relaxed);
+    }
 
 private:
     PublishCallback publish_cb_;

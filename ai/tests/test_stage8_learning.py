@@ -241,6 +241,10 @@ def test_good_proxy_bad_production_replay_rejects(tmp_path: Path):
                     mean_pnl=1.0,
                     win_rate=0.8,
                     n=len(episodes),
+                    decisions=10,
+                    entry_ready=4,
+                    entries=3,
+                    exits=2,
                     used_production_replay=True,
                     source="test_baseline_replay",
                 )
@@ -249,6 +253,10 @@ def test_good_proxy_bad_production_replay_rejects(tmp_path: Path):
                 mean_pnl=-5.0,
                 win_rate=0.0,
                 n=len(episodes),
+                decisions=10,
+                entry_ready=1,
+                entries=1,
+                exits=1,
                 used_production_replay=True,
                 source="test_candidate_bad_replay",
             )
@@ -263,6 +271,86 @@ def test_good_proxy_bad_production_replay_rejects(tmp_path: Path):
         assert proxy_metrics["edge"] > 0.0
         assert report["metrics"]["oos"]["edge"] < 0.0
         assert proxy_metrics["edge"] > report["metrics"]["oos"]["edge"]
+    finally:
+        set_production_replay_backend(None)
+
+
+def test_different_weights_yield_different_replay_outcomes_for_promotion(tmp_path: Path):
+    """Two candidate weights → different production-replay outcomes; promotion compares them."""
+    from ai.learning.training.weight_space import default_weight_bundle, stable_hash
+    from ai.validation.production_replay import (
+        ReplayMetrics,
+        evaluate_weights_on_episodes,
+        set_production_replay_backend,
+    )
+    from ai.validation.promotion_gate import evaluate_promotion
+
+    episodes = make_episode_corpus(n=12, seed=3)
+    w_a = default_weight_bundle()
+    w_b = default_weight_bundle()
+    w_b["decision"]["edge_scale"] = 0.01
+    w_b["prediction"]["probability_scale"] = 2.0
+    assert stable_hash(w_a) != stable_hash(w_b)
+
+    class WeightSensitiveReplayBackend:
+        """Simulates production Brain replay: different weights → different trade outcomes."""
+
+        def evaluate(self, episodes, weights, *, equity=50_000.0):
+            _ = equity
+            h = stable_hash(weights)
+            if h == stable_hash(w_a):
+                return ReplayMetrics(
+                    edge=0.5,
+                    mean_pnl=0.5,
+                    win_rate=0.6,
+                    n=len(episodes),
+                    decisions=8,
+                    entry_ready=3,
+                    entries=2,
+                    exits=1,
+                    used_production_replay=True,
+                    source="test_replay_weights_a",
+                )
+            return ReplayMetrics(
+                edge=-1.5,
+                mean_pnl=-1.5,
+                win_rate=0.2,
+                n=len(episodes),
+                decisions=8,
+                entry_ready=1,
+                entries=0,
+                exits=0,
+                used_production_replay=True,
+                source="test_replay_weights_b",
+            )
+
+    set_production_replay_backend(WeightSensitiveReplayBackend())
+    try:
+        ma = evaluate_weights_on_episodes(episodes, w_a)
+        mb = evaluate_weights_on_episodes(episodes, w_b)
+        assert ma.edge != mb.edge
+        assert ma.entries != mb.entries or ma.entry_ready != mb.entry_ready
+        assert ma.used_production_replay and mb.used_production_replay
+
+        # Promotion compares these replay outcomes directly (A better than B).
+        checks_a = {
+            "out_of_sample": True,
+            "walk_forward": True,
+            "stress": True,
+            "monte_carlo": True,
+            "probability_calibration": True,
+            "no_overfit": True,
+            "no_leakage": True,
+            "shadow_paper": True,
+            "risk_safety_frozen": True,
+            "reproducible": True,
+            "production_replay": ma.edge >= mb.edge,
+        }
+        checks_b = dict(checks_a)
+        checks_b["production_replay"] = mb.edge >= ma.edge  # False — worse replay
+        assert evaluate_promotion({"checks": checks_a})["passed"] is True
+        assert evaluate_promotion({"checks": checks_b})["passed"] is False
+        assert "production_replay" in evaluate_promotion({"checks": checks_b})["reject_reasons"]
     finally:
         set_production_replay_backend(None)
 

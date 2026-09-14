@@ -1,4 +1,5 @@
 #include "mr/market_core/episode_replay.hpp"
+#include "mr/memory_engine/episode_recorder.hpp"
 
 namespace mr {
 
@@ -26,6 +27,12 @@ EpisodeReplay::Result EpisodeReplay::run(const TradeEpisode& episode) {
     if (weights_.has_value()) {
         apply_weight_bundle(pipeline, *weights_);
     }
+
+    // Capture real entries/exits/PnL produced by this replay (benchmark outcome unused).
+    EpisodeRecorder recorder;
+    recorder.begin_episode(episode.episode_id.empty() ? "candidate-replay" : episode.episode_id,
+                           episode.instrument);
+    pipeline.attach_episode_recorder(&recorder);
 
     for (const auto& item : episode.market) {
         out.clock_order.push_back(item.domain);
@@ -56,6 +63,27 @@ EpisodeReplay::Result EpisodeReplay::run(const TradeEpisode& episode) {
     out.final_micro = pipeline.micro().snapshot();
     out.open_positions = pipeline.open_positions();
     out.pending_intents = pipeline.pending_intents();
+
+    out.decisions = pipeline.telemetry().decision_count();
+    if (paper_ != nullptr) {
+        out.entries = paper_->creates().size();
+        out.exits = paper_->closes().size();
+    }
+    for (const auto& intent : out.pending_intents) {
+        if (intent.decision == EntryDecision::EntryReady) {
+            ++out.entry_ready;
+        }
+    }
+    // Filled entries were EntryReady decisions that cleared pending via execution.
+    out.entry_ready += out.entries;
+
+    for (const auto& pos : out.open_positions) {
+        out.unrealized_pnl += pos.current_pnl;
+    }
+    out.realized_pnl = recorder.episode().outcome.realized_pnl;
+    out.total_pnl = out.realized_pnl + out.unrealized_pnl;
+
+    pipeline.attach_episode_recorder(nullptr);
     return out;
 }
 

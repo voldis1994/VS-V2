@@ -66,6 +66,10 @@ int main(int argc, char** argv) {
         {"win_rate", metrics.win_rate},
         {"n", metrics.n},
         {"market_events", metrics.market_events},
+        {"decisions", metrics.decisions},
+        {"entry_ready", metrics.entry_ready},
+        {"entries", metrics.entries},
+        {"exits", metrics.exits},
         {"used_production_replay", metrics.used_production_replay},
         {"source", "stage7_episode_replay"},
     };

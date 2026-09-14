@@ -1,7 +1,9 @@
 """Production Stage-7 EpisodeReplay evaluation for Stage-8 candidates.
 
 Python may train/calibrate candidates, but promotion truth comes from the
-production C++ Replay/Brain path (candidate-replay-eval), not proxy_pnl.
+production C++ Replay/Brain path (candidate-replay-eval). Metrics are the
+real replay decisions/trades/PnL — never a manual score_after_replay /
+proxy_pnl formula, and never the recorded episode outcome as candidate result.
 """
 from __future__ import annotations
 
@@ -14,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from ai.episodes.loader import EPISODE_SUFFIX
+from ai.episodes.loader import EPISODE_SUFFIX as EPISODE_FILE_SUFFIX
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,10 @@ class ReplayMetrics:
     win_rate: float
     n: int
     market_events: int = 0
+    decisions: int = 0
+    entry_ready: int = 0
+    entries: int = 0
+    exits: int = 0
     used_production_replay: bool = True
     source: str = "stage7_episode_replay"
 
@@ -36,70 +42,6 @@ class ProductionReplayBackend(Protocol):
         *,
         equity: float = 50_000.0,
     ) -> ReplayMetrics: ...
-
-
-def _clamp01(x: float) -> float:
-    return max(0.0, min(1.0, x))
-
-
-def production_replay_episode_edge(episode: dict[str, Any], weights: dict[str, Any]) -> float:
-    """
-    Mirror of C++ production_replay_episode_edge coefficients.
-
-    Fallback when the C++ binary is unavailable locally. CI builds/runs
-    candidate-replay-eval (EpisodeReplay). This is NOT Python proxy_pnl.
-    """
-    outcome = episode.get("outcome") or {}
-    frames = episode.get("frames") or []
-    frame = None
-    for f in frames:
-        if f.get("has_decision") and f.get("has_prediction"):
-            frame = f
-            break
-    if frame is None and frames:
-        frame = frames[0]
-
-    pred_p = 0.5
-    pred_c = 0.5
-    pred_r = 0.5
-    if frame is not None:
-        prediction = frame.get("prediction") or {}
-        direction = int(outcome.get("direction") or 0)
-        side = prediction.get("short_side") if direction == 2 else prediction.get("long_side")
-        side = side or {}
-        pred_p = float(side.get("probability") or 0.5)
-        pred_c = float(side.get("continuation") or 0.5)
-        pred_r = float(side.get("reversal_failure") or 0.5)
-
-    realized = float(outcome.get("realized_pnl") or 0.0)
-    mfe = float(outcome.get("mfe") or 0.0)
-    mae = float(outcome.get("mae") or 0.0)
-    exit_q = _clamp01(realized / mfe) if mfe > 1e-12 else 0.5
-
-    pred_w = weights.get("prediction") or {}
-    dec_w = weights.get("decision") or {}
-    pos_w = weights.get("position") or {}
-    p_scale = float(pred_w.get("probability_scale") or 1.0)
-    c_scale = float(pred_w.get("continuation_scale") or 1.0)
-    r_scale = float(pred_w.get("reversal_scale") or 1.0)
-    edge_scale = float(dec_w.get("edge_scale") or 0.35)
-    exit_scale = float(pos_w.get("exit_scale") or 1.0)
-
-    cal_p = _clamp01(pred_p * p_scale)
-    cal_c = _clamp01(pred_c * c_scale)
-    cal_r = _clamp01(pred_r * r_scale)
-    win = 1.0 if realized > 0.0 else 0.0
-    align = 1.0 - abs(cal_p - win)
-    cont_target = mfe / (mfe + mae + 1e-12)
-    cont_term = 1.0 - abs(cal_c - cont_target)
-    rev_penalty = cal_r * (1.0 - win)
-    exit_term = _clamp01(exit_q * exit_scale)
-
-    edge = realized * (0.35 + 0.35 * align + 0.15 * cont_term + 0.15 * exit_term - 0.20 * rev_penalty)
-    edge *= 0.55 + 0.45 * max(0.1, edge_scale)
-    if exit_scale > 1.0:
-        edge *= 1.0 / exit_scale
-    return edge
 
 
 def _find_replay_binary() -> Path | None:
@@ -148,7 +90,7 @@ class CppCandidateReplayBackend:
             ep_dir.mkdir()
             for ep in episodes:
                 eid = str(ep.get("episode_id") or "ep")
-                (ep_dir / f"{eid}{EPISODE_SUFFIX}").write_text(
+                (ep_dir / f"{eid}{EPISODE_FILE_SUFFIX}").write_text(
                     json.dumps(ep, sort_keys=True), encoding="utf-8"
                 )
             weights_path = root / "weights.json"
@@ -176,17 +118,17 @@ class CppCandidateReplayBackend:
             win_rate=float(payload.get("win_rate") or 0.0),
             n=int(payload.get("n") or 0),
             market_events=int(payload.get("market_events") or 0),
+            decisions=int(payload.get("decisions") or 0),
+            entry_ready=int(payload.get("entry_ready") or 0),
+            entries=int(payload.get("entries") or 0),
+            exits=int(payload.get("exits") or 0),
             used_production_replay=bool(payload.get("used_production_replay", True)),
             source=str(payload.get("source") or "stage7_episode_replay"),
         )
 
 
-class ProductionFormulaBackend:
-    """Dev-only coefficient mirror of C++ production_replay_episode_edge.
-
-    Does NOT count as production replay for promotion (`used_production_replay=False`).
-    CI must build/run candidate-replay-eval; inject FixedReplayBackend in unit tests.
-    """
+class UnavailableReplayBackend:
+    """No C++ binary — cannot claim production replay truth (no manual formula)."""
 
     def evaluate(
         self,
@@ -195,27 +137,14 @@ class ProductionFormulaBackend:
         *,
         equity: float = 50_000.0,
     ) -> ReplayMetrics:
-        _ = equity
-        if not episodes:
-            return ReplayMetrics(
-                0.0,
-                0.0,
-                0.0,
-                0,
-                used_production_replay=False,
-                source="production_formula_fallback",
-            )
-        edges = [production_replay_episode_edge(ep, weights) for ep in episodes]
-        mean = sum(edges) / len(edges)
-        wins = sum(1 for e in edges if e > 0.0)
+        _ = episodes, weights, equity
         return ReplayMetrics(
-            edge=mean,
-            mean_pnl=mean,
-            win_rate=wins / len(edges),
-            n=len(edges),
-            market_events=sum(len(ep.get("market") or []) for ep in episodes),
+            edge=0.0,
+            mean_pnl=0.0,
+            win_rate=0.0,
+            n=0,
             used_production_replay=False,
-            source="production_formula_fallback",
+            source="production_replay_unavailable",
         )
 
 
@@ -250,7 +179,7 @@ def get_production_replay_backend() -> ProductionReplayBackend:
     try:
         return CppCandidateReplayBackend()
     except FileNotFoundError:
-        return ProductionFormulaBackend()
+        return UnavailableReplayBackend()
 
 
 def evaluate_weights_on_episodes(
@@ -272,6 +201,10 @@ def metrics_to_dict(m: ReplayMetrics) -> dict[str, float | int | bool | str]:
         "win_rate": m.win_rate,
         "n": float(m.n),
         "market_events": float(m.market_events),
+        "decisions": float(m.decisions),
+        "entry_ready": float(m.entry_ready),
+        "entries": float(m.entries),
+        "exits": float(m.exits),
         "used_production_replay": m.used_production_replay,
         "source": m.source,
     }

@@ -83,3 +83,18 @@ target_link_libraries(test_stage7_memory_replay PRIVATE
   GTest::gtest
   GTest::gtest_main)
 add_test(NAME test_stage7_memory_replay COMMAND test_stage7_memory_replay)
+
+add_executable(test_stage8_candidate_replay test_stage8_candidate_replay.cpp)
+target_link_libraries(test_stage8_candidate_replay PRIVATE
+  mr::market-core
+  mr::memory-engine
+  mr::replay
+  mr::execution-engine
+  mr::position-brain
+  mr::prediction-engine
+  mr::decision-engine
+  mr::risk-engine
+  mr::brain-core
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_stage8_candidate_replay COMMAND test_stage8_candidate_replay)
