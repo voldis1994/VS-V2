@@ -21,3 +21,7 @@ add_test(NAME test_clock_architecture COMMAND test_clock_architecture)
 add_executable(test_live_multi_clock test_live_multi_clock.cpp)
 target_link_libraries(test_live_multi_clock PRIVATE mr::market-core mr::candle-engine GTest::gtest GTest::gtest_main)
 add_test(NAME test_live_multi_clock COMMAND test_live_multi_clock)
+
+add_executable(test_stage2_runtime test_stage2_runtime.cpp)
+target_link_libraries(test_stage2_runtime PRIVATE mr::market-core GTest::gtest GTest::gtest_main)
+add_test(NAME test_stage2_runtime COMMAND test_stage2_runtime)

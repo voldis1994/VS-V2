@@ -7,6 +7,7 @@ add_library(mr_market_core STATIC
     src/intent_dispatcher.cpp
     src/health_monitor.cpp
     src/live_multi_clock_path.cpp
+    src/capital_env.cpp
 )
 add_library(mr::market-core ALIAS mr_market_core)
 target_include_directories(mr_market_core PUBLIC include src)

@@ -23,6 +23,12 @@ public:
     /** Attach Capital client + epic mapping and run the long-lived multi-clock path. */
     void run_live(CapitalClient& client, LiveFeedConfig feed_cfg, std::atomic<bool>& running);
 
+    /**
+     * Persistent PAPER/REPLAY idle loop — Stage 2 requires the process to stay alive
+     * until `running` is cleared (SIGINT/SIGTERM) or request_shutdown().
+     */
+    void run_paper(std::atomic<bool>& running);
+
     [[nodiscard]] MarketCorePipeline& pipeline() { return pipeline_; }
     [[nodiscard]] RuntimeMode mode() const { return mode_; }
     void request_shutdown();

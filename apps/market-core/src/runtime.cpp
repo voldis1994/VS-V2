@@ -1,4 +1,6 @@
 #include "mr/market_core/runtime.hpp"
+#include <chrono>
+#include <thread>
 
 namespace mr {
 
@@ -24,6 +26,14 @@ void MarketCoreRuntime::run_live(CapitalClient& client, LiveFeedConfig feed_cfg,
     CapitalClientMarketSource source(client);
     LiveMultiClockPath path(pipeline_, source, std::move(feed_cfg));
     path.run(running);
+    running_ = false;
+}
+
+void MarketCoreRuntime::run_paper(std::atomic<bool>& running) {
+    running_ = true;
+    while (running.load() && running_.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
     running_ = false;
 }
 
