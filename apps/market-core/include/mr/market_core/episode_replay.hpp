@@ -2,9 +2,11 @@
 
 #include "mr/memory_engine/episode_types.hpp"
 #include "mr/market_core/pipeline.hpp"
+#include "mr/market_core/weight_bundle.hpp"
 #include "mr/microstructure_engine/microstructure_features.hpp"
 #include "mr/replay/paper_order_gateway.hpp"
 
+#include <optional>
 #include <vector>
 
 namespace mr {
@@ -38,12 +40,16 @@ public:
 
     void set_account_equity(double equity);
 
+    /** Stage-8 candidate weights applied to production Brain before replay. */
+    void set_weight_bundle(const WeightBundle& bundle);
+
     Result run(const TradeEpisode& episode);
 
 private:
     PaperOrderGateway* paper_{nullptr};
     double equity_{0};
     bool equity_set_{false};
+    std::optional<WeightBundle> weights_{};
 };
 
 }  // namespace mr

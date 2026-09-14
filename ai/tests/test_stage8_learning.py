@@ -181,12 +181,14 @@ def test_promotion_gate_requires_all_checks():
             "shadow_paper",
             "risk_safety_frozen",
             "reproducible",
+            "production_replay",
         )
     }
     assert promotion_gate(full) is True
     bad = dict(full)
     bad["no_overfit"] = False
     assert promotion_gate(bad) is False
+    # Legacy four-key bypass removed — partial checks must fail.
     assert (
         promotion_gate(
             {
@@ -196,11 +198,73 @@ def test_promotion_gate_requires_all_checks():
                 "probability_calibration": True,
             }
         )
-        is True
+        is False
     )
     gate = evaluate_promotion({"checks": bad})
     assert gate["passed"] is False
     assert "no_overfit" in gate["reject_reasons"]
+
+
+def test_good_proxy_bad_production_replay_rejects(tmp_path: Path):
+    """Candidate with strong Python proxy score but worse production replay → REJECT."""
+    from ai.learning.training.trainer import _apply_score, train_candidate
+    from ai.learning.evaluation.metrics import score_samples
+    from ai.learning.training.weight_space import default_weight_bundle, stable_hash
+    from ai.validation.pipeline import validate_candidate_artifact
+    from ai.validation.production_replay import (
+        ReplayMetrics,
+        set_production_replay_backend,
+    )
+
+    episodes = make_episode_corpus(n=24, seed=21)
+    result = train_candidate(
+        episodes, models_root=tmp_path, cfg=TrainingConfig(seed=21, model_name="proxy-trap")
+    )
+    art = json.loads(Path(result.artifact_path).read_text(encoding="utf-8"))
+
+    samples = build_dataset(episodes)
+    scored = _apply_score(samples, art["weights"])
+    proxy_metrics = score_samples(scored)
+    # Training proxy looks acceptable — must not drive promotion.
+    assert proxy_metrics["edge"] > 0.0
+
+    baseline_hash = stable_hash(default_weight_bundle())
+
+    class TrapBackend:
+        """Baseline defaults look fine; candidate weights get a worse production replay."""
+
+        def evaluate(self, episodes, weights, *, equity=50_000.0):
+            _ = equity
+            if stable_hash(weights) == baseline_hash:
+                return ReplayMetrics(
+                    edge=1.0,
+                    mean_pnl=1.0,
+                    win_rate=0.8,
+                    n=len(episodes),
+                    used_production_replay=True,
+                    source="test_baseline_replay",
+                )
+            return ReplayMetrics(
+                edge=-5.0,
+                mean_pnl=-5.0,
+                win_rate=0.0,
+                n=len(episodes),
+                used_production_replay=True,
+                source="test_candidate_bad_replay",
+            )
+
+    set_production_replay_backend(TrapBackend())
+    try:
+        report = validate_candidate_artifact(art, episodes, cfg=TrainingConfig(seed=21))
+        assert report["checks"]["production_replay"] is False
+        assert report["passed"] is False
+        assert "production_replay" in report["reject_reasons"]
+        # Good proxy must not rescue a worse production-replay candidate.
+        assert proxy_metrics["edge"] > 0.0
+        assert report["metrics"]["oos"]["edge"] < 0.0
+        assert proxy_metrics["edge"] > report["metrics"]["oos"]["edge"]
+    finally:
+        set_production_replay_backend(None)
 
 
 def test_worse_model_rejected_by_overfit_path(tmp_path: Path):

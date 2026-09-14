@@ -9,6 +9,8 @@ void EpisodeReplay::set_account_equity(double equity) {
     equity_set_ = equity > 0.0;
 }
 
+void EpisodeReplay::set_weight_bundle(const WeightBundle& bundle) { weights_ = bundle; }
+
 EpisodeReplay::Result EpisodeReplay::run(const TradeEpisode& episode) {
     Result out;
     out.used_live_gateway = false;
@@ -21,6 +23,9 @@ EpisodeReplay::Result EpisodeReplay::run(const TradeEpisode& episode) {
         pipeline.bind_order_gateway(*paper_);
     }
     if (equity_set_) pipeline.set_account_equity(equity_);
+    if (weights_.has_value()) {
+        apply_weight_bundle(pipeline, *weights_);
+    }
 
     for (const auto& item : episode.market) {
         out.clock_order.push_back(item.domain);

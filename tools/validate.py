@@ -40,10 +40,23 @@ def main() -> int:
                 "shadow_paper": True,
                 "risk_safety_frozen": True,
                 "reproducible": True,
+                "production_replay": True,
             }
         )
         if reject_demo:
             print("FAIL: overfit/oos-fail candidate incorrectly passed promotion_gate")
+            return 1
+
+        # Legacy four-key bypass must no longer promote.
+        if promotion_gate(
+            {
+                "out_of_sample": True,
+                "walk_forward": True,
+                "monte_carlo": True,
+                "probability_calibration": True,
+            }
+        ):
+            print("FAIL: legacy four-key bypass incorrectly passed promotion_gate")
             return 1
 
         registry = ModelRegistry(models_root)

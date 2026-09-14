@@ -1,4 +1,3 @@
-
 name: Validation
 on: [push, pull_request]
 jobs:
@@ -6,5 +5,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install C++ deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake g++ ninja-build \
+            libcurl4-openssl-dev libssl-dev zlib1g-dev \
+            libfmt-dev libspdlog-dev libyaml-cpp-dev \
+            nlohmann-json3-dev libgtest-dev
+      - name: Build candidate-replay-eval
+        run: |
+          cmake -B build -G Ninja -DMR_BUILD_TESTS=ON
+          cmake --build build --target candidate-replay-eval -j
+          echo "CANDIDATE_REPLAY_EVAL_BIN=$PWD/build/apps/market-core/candidate-replay-eval" >> "$GITHUB_ENV"
       - name: Validate promotion gate
         run: PYTHONPATH=. python3 tools/validate.py

@@ -84,6 +84,9 @@ public:
     [[nodiscard]] const std::vector<PositionState>& open_positions() const { return open_positions_; }
     [[nodiscard]] PositionBrain& position_brain() { return position_; }
     [[nodiscard]] ExecutionEngine* execution() { return execution_.get(); }
+    [[nodiscard]] PredictionEngine& prediction_engine() { return prediction_; }
+    [[nodiscard]] DecisionEngine& decision_engine() { return decision_; }
+    [[nodiscard]] RiskEngine& risk_engine() { return risk_; }
 
     /**
      * Continue after DecisionEngine produced EntryReady.

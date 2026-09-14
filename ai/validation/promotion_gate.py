@@ -1,4 +1,4 @@
-"""Promotion gate — candidate must pass the full validation chain."""
+"""Promotion gate — candidate must pass EVERY Stage-8 check (no legacy bypass)."""
 from __future__ import annotations
 
 from typing import Any
@@ -15,29 +15,13 @@ REQUIRED_CHECKS = (
     "shadow_paper",
     "risk_safety_frozen",
     "reproducible",
+    "production_replay",
 )
-
-# Backward-compatible aliases accepted as evidence for newer keys.
-_ALIASES = {
-    "stress": ("stress", "transaction_cost_stress"),
-}
 
 
 def promotion_gate(checks: dict[str, bool]) -> bool:
-    """Return True only when every required promotion check passes."""
-    normalized = dict(checks)
-    # Map legacy four-key scaffold onto full gate when only legacy keys present.
-    legacy = ("out_of_sample", "walk_forward", "monte_carlo", "probability_calibration")
-    if all(k in normalized for k in legacy) and "no_overfit" not in normalized:
-        # Legacy CI stub path — require the four keys only.
-        return all(bool(normalized.get(k, False)) for k in legacy)
-    for key in REQUIRED_CHECKS:
-        if key == "stress" and key not in normalized:
-            if normalized.get("transaction_cost_stress"):
-                normalized["stress"] = True
-        if not bool(normalized.get(key, False)):
-            return False
-    return True
+    """Return True only when every required Stage-8 promotion check passes."""
+    return all(bool(checks.get(k, False)) for k in REQUIRED_CHECKS)
 
 
 def evaluate_promotion(report: dict[str, Any]) -> dict[str, Any]:

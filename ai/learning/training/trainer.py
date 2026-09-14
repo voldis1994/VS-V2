@@ -128,7 +128,10 @@ def _calibrate_weights(train_samples: list[dict[str, Any]], cfg: TrainingConfig)
 
 
 def _apply_score(samples: list[dict[str, Any]], weights: dict[str, Any]) -> list[dict[str, Any]]:
-    """Score each sample with calibrated weights (replay/backtest surrogate)."""
+    """Training-only proxy diagnostic score — NEVER used for promotion gates.
+
+    Promotion truth is Stage-7 production EpisodeReplay (see ai.validation.production_replay).
+    """
     p_scale = float(weights["prediction"]["probability_scale"])
     c_scale = float(weights["prediction"]["continuation_scale"])
     edge = float(weights["decision"]["edge_scale"])
@@ -139,17 +142,19 @@ def _apply_score(samples: list[dict[str, Any]], weights: dict[str, Any]) -> list
         lab = s["labels"]
         cal_p = clamp(float(f["pred_probability"]) * p_scale, 0.0, 1.0)
         cal_c = clamp(float(f["pred_continuation"]) * c_scale, 0.0, 1.0)
-        # Proxy PnL: blend realized with calibration alignment (deterministic).
+        # Proxy PnL diagnostic only (training). Not production-replay truth.
         align = 1.0 - abs(cal_p - float(lab["win"]))
         cont_align = 1.0 - abs(cal_c - float(lab["realized_continuation"]))
         exit_align = float(lab["exit_quality"]) * exit_s
-        proxy = float(lab["realized_pnl"]) * (0.5 + 0.25 * align + 0.15 * cont_align + 0.1 * min(1.0, exit_align))
-        proxy *= 0.5 + edge  # decision edge scale influence
+        proxy = float(lab["realized_pnl"]) * (
+            0.5 + 0.25 * align + 0.15 * cont_align + 0.1 * min(1.0, exit_align)
+        )
+        proxy *= 0.5 + edge
         row = copy.deepcopy(s)
         row["score"] = {
             "calibrated_probability": cal_p,
             "calibrated_continuation": cal_c,
-            "proxy_pnl": proxy,
+            "proxy_pnl": proxy,  # training diagnostic only
             "edge": proxy,
         }
         scored.append(row)

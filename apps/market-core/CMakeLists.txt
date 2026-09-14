@@ -9,6 +9,8 @@ add_library(mr_market_core STATIC
     src/live_multi_clock_path.cpp
     src/capital_env.cpp
     src/episode_replay.cpp
+    src/weight_bundle.cpp
+    src/candidate_replay_eval.cpp
 )
 add_library(mr::market-core ALIAS mr_market_core)
 target_include_directories(mr_market_core PUBLIC include src)
@@ -33,9 +35,14 @@ target_link_libraries(mr_market_core PUBLIC
     mr::memory-engine
     mr::replay
     mr::common
+    nlohmann_json::nlohmann_json
 )
 target_compile_features(mr_market_core PUBLIC cxx_std_20)
 
 add_executable(market-core src/main.cpp)
 target_link_libraries(market-core PRIVATE mr::market-core)
 target_compile_features(market-core PRIVATE cxx_std_20)
+
+add_executable(candidate-replay-eval src/candidate_replay_eval_main.cpp)
+target_link_libraries(candidate-replay-eval PRIVATE mr::market-core)
+target_compile_features(candidate-replay-eval PRIVATE cxx_std_20)
