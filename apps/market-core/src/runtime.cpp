@@ -14,6 +14,19 @@ void MarketCoreRuntime::process_event(const MarketEvent& event) {
     pipeline_.process_event(event);
 }
 
+void MarketCoreRuntime::process_authority_ohlc(const Candle& closed, Timeframe tf) {
+    if (!running_) return;
+    pipeline_.process_authority_ohlc(closed, tf);
+}
+
+void MarketCoreRuntime::run_live(CapitalClient& client, LiveFeedConfig feed_cfg,
+                                 std::atomic<bool>& running) {
+    CapitalClientMarketSource source(client);
+    LiveMultiClockPath path(pipeline_, source, std::move(feed_cfg));
+    path.run(running);
+    running_ = false;
+}
+
 void MarketCoreRuntime::request_shutdown() {
     running_ = false;
 }

@@ -21,4 +21,4 @@ jobs:
         with: { node-version: '22' }
       - run: npm install
       - run: npm test --workspace=@vs-v2/control-api
-      - run: python3 -m pytest ai/tests -q || true
+      - run: PYTHONPATH=. python3 -m pytest ai/tests -q

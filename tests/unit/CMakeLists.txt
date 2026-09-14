@@ -17,3 +17,7 @@ add_test(NAME test_ten_second_ohlc COMMAND test_ten_second_ohlc)
 add_executable(test_clock_architecture test_clock_architecture.cpp)
 target_link_libraries(test_clock_architecture PRIVATE mr::market-core mr::decision-engine mr::risk-engine GTest::gtest GTest::gtest_main)
 add_test(NAME test_clock_architecture COMMAND test_clock_architecture)
+
+add_executable(test_live_multi_clock test_live_multi_clock.cpp)
+target_link_libraries(test_live_multi_clock PRIVATE mr::market-core mr::candle-engine GTest::gtest GTest::gtest_main)
+add_test(NAME test_live_multi_clock COMMAND test_live_multi_clock)

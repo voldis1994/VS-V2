@@ -1,9 +1,12 @@
 #pragma once
 
 #include "mr/market_core/pipeline.hpp"
+#include "mr/market_core/live_multi_clock_path.hpp"
+#include "mr/market_core/capital_client_source.hpp"
+#include "mr/capital/capital_client.hpp"
 #include "mr/common/config.hpp"
 #include <atomic>
-#include <functional>
+#include <memory>
 #include <string>
 
 namespace mr {
@@ -15,6 +18,11 @@ public:
     MarketCoreRuntime();
     void configure(const ConfigRegistry& config, RuntimeMode mode);
     void process_event(const MarketEvent& event);
+    void process_authority_ohlc(const Candle& closed, Timeframe tf);
+
+    /** Attach Capital client + epic mapping and run the long-lived multi-clock path. */
+    void run_live(CapitalClient& client, LiveFeedConfig feed_cfg, std::atomic<bool>& running);
+
     [[nodiscard]] MarketCorePipeline& pipeline() { return pipeline_; }
     [[nodiscard]] RuntimeMode mode() const { return mode_; }
     void request_shutdown();
