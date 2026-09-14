@@ -1,14 +1,17 @@
 #pragma once
 
-#include "mr/market_data/market_data_service.hpp"
+#include "mr/market_types/market_event.hpp"
 #include "mr/persistence/raw_event_storage.hpp"
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace mr {
+
+using MarketEventCallback = std::function<void(const MarketEvent&)>;
 
 enum class ReplaySpeed : std::uint8_t {
     RealTime = 0,

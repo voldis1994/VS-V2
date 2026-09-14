@@ -1,5 +1,6 @@
 #pragma once
 #include "mr/common/ring_buffer.hpp"
+#include <unordered_map>
 #include "mr/common/id.hpp"
 namespace mr {
 class LatencyTracker {

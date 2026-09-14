@@ -1,4 +1,5 @@
 #include "mr/scenario_engine/scenario_engine.hpp"
+#include <algorithm>
 namespace mr {
 std::vector<Scenario> ScenarioEngine::evaluate(const StructureFeatures& st, const RegimeFeatures& rg, const MicrostructureFeatures& ms) {
     std::vector<Scenario> out;

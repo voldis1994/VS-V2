@@ -42,7 +42,7 @@ public:
     void set_publish_callback(PublishCallback cb);
     void record_event();
     void record_decision();
-    void publish_metrics(const SystemMetrics& metrics, const Clock& clock);
+    void publish_metrics(const SystemMetrics& metrics, const Clock& time_source);
     void publish_market_state(const nlohmann::json& state);
     [[nodiscard]] SystemMetrics metrics() const;
 

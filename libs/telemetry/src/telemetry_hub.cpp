@@ -56,7 +56,7 @@ void TelemetryHub::record_decision() {
     decision_count_.fetch_add(1, std::memory_order_relaxed);
 }
 
-void TelemetryHub::publish_metrics(const SystemMetrics& metrics, const Clock& /*clock*/) {
+void TelemetryHub::publish_metrics(const SystemMetrics& metrics, const Clock& time_source) {
     metrics_ = metrics;
     if (!publish_cb_) return;
 
@@ -68,7 +68,7 @@ void TelemetryHub::publish_metrics(const SystemMetrics& metrics, const Clock& /*
     j["memory_mb"] = metrics.memory_mb;
     j["queue_depth"] = metrics.queue_depth;
     j["mode"] = static_cast<int>(metrics.mode);
-    j["timestamp_ns"] = clock.utc_now().count();
+    j["timestamp_ns"] = time_source.utc_now().count();
     publish_cb_(j);
 }
 

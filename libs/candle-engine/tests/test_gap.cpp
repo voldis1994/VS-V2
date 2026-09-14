@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "mr/candle_engine/candle_gap_handler.hpp"
+#include "mr/market_types/timeframe.hpp"
 using namespace mr;
 TEST(GapHandler, DetectsMissingBuckets) {
     CandleGapHandler h;

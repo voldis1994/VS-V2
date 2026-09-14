@@ -1,5 +1,6 @@
 #pragma once
 #include "mr/common/id.hpp"
+#include "mr/market_types/quote.hpp"
 #include <functional>
 namespace mr {
 using QuoteHandler = std::function<void(const Quote&)>;

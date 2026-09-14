@@ -5,6 +5,7 @@ class CandleDeduplicator {
 public:
     bool accept(const Candle& c);
 private:
+    bool has_last_{false};
     Timestamp last_open_{};
 };
 }

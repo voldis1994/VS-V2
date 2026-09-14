@@ -1,4 +1,5 @@
 #pragma once
+#include "mr/candle_engine/closed_candle.hpp"
 #include "mr/candle_engine/ten_second_builder.hpp"
 #include "mr/candle_engine/second_builder.hpp"
 #include "mr/candle_engine/candle_history.hpp"

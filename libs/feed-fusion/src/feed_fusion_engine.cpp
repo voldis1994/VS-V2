@@ -26,7 +26,9 @@ ConsensusQuote FeedFusionEngine::consensus(InstrumentId instrument) const {
     auto it = state_.find(instrument); if (it == state_.end()) return c;
     double wsum = 0, weights = 0, spread_sum = 0; std::uint32_t n = 0;
     for (const auto& [sid, ev] : it->second.last_by_source) {
-        auto h = it->second.health_by_source[sid];
+        auto hit = it->second.health_by_source.find(sid);
+        if (hit == it->second.health_by_source.end()) continue;
+        auto h = hit->second;
         double w = h.reliability * (h.predictive_usefulness + 0.5);
         double m = mid(ev); if (m <= 0 || w <= 0) continue;
         wsum += m * w; weights += w;

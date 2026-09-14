@@ -2,7 +2,9 @@
 namespace mr {
 MarketCorePipeline::MarketCorePipeline() : normalizer_(clock_), decision_(intent_ids_) {}
 void MarketCorePipeline::configure(const ConfigRegistry& config) {
-    stale_ms_ = config.get_double("stale_threshold_ms", 500.0);
+    if (!config.feeds().empty()) {
+        stale_ms_ = config.feeds().front().stale_threshold_ms;
+    }
 }
 void MarketCorePipeline::process_event(const MarketEvent& event) {
     telemetry_.record_event();

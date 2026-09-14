@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 namespace mr {
-enum class Timeframe : std::uint8_t { Second1=1, Second10=10, Minute1=60, Minute5=300, Minute15=900, Hour1=3600 };
+enum class Timeframe : std::uint32_t { Second1=1, Second10=10, Minute1=60, Minute5=300, Minute15=900, Hour1=3600 };
 inline std::uint64_t timeframe_ns(Timeframe tf) {
     switch(tf) {
         case Timeframe::Second1: return 1'000'000'000ULL;

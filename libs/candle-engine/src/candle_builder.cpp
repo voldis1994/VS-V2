@@ -17,8 +17,10 @@ CandleEvent CandleBuilder::on_tick(double price, Timestamp ts, InstrumentId inst
         forming_.open = forming_.high = forming_.low = forming_.close = price;
         forming_.ticks = 1; forming_.status = CandleStatus::Forming;
         has_forming_ = true;
-        if (ev.type != CandleEventType::Closed) ev.type = CandleEventType::Tick;
-        ev.candle = forming_;
+        if (ev.type != CandleEventType::Closed) {
+            ev.type = CandleEventType::Tick;
+            ev.candle = forming_;
+        }
         return ev;
     }
     forming_.high = std::max(forming_.high, price);

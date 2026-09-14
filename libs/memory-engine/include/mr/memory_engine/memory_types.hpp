@@ -1,11 +1,16 @@
 #pragma once
 #include "mr/common/id.hpp"
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <vector>
 namespace mr {
 struct WorkingMemory { std::deque<double> recent_returns; std::size_t max_size{64}; };
-struct SessionMemory { double session_high{0}, session_low{0}, std::uint64_t event_count{0}; };
+struct SessionMemory {
+    double session_high{0};
+    double session_low{0};
+    std::uint64_t event_count{0};
+};
 struct StructuralMemory { double last_swing_high{0}, last_swing_low{0}; };
 struct HistoricalMemory { std::deque<double> closes; };
 struct PatternMemory { std::vector<std::vector<double>> clusters; };
