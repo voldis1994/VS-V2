@@ -59,6 +59,13 @@ vi.mock('./robotDesk.js', () => ({
   stopRobotSession: vi.fn(async () => undefined),
 }));
 
+// Idempotency / fan-out entry tests exercise LIVE execution path — arm entries here.
+// Production gate remains fail-closed; this mock only applies inside this test file.
+vi.mock('./runtimeMode.js', () => ({
+  liveEntriesAllowed: () => true,
+  manageOpenPositionsAllowed: () => true,
+}));
+
 function sub(partial: {
   client_id: number;
   account_id: number;
