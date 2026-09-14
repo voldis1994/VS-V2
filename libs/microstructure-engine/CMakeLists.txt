@@ -1,4 +1,6 @@
-add_library(mr_microstructure_engine STATIC src/microstructure_engine.cpp)
+add_library(mr_microstructure_engine STATIC
+  src/microstructure_engine.cpp
+  src/micro_norm_config.cpp)
 add_library(mr::microstructure-engine ALIAS mr_microstructure_engine)
 target_include_directories(mr_microstructure_engine PUBLIC include)
 target_link_libraries(mr_microstructure_engine PUBLIC mr::market-types mr::perception-engine)

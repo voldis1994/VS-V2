@@ -8,7 +8,7 @@ namespace mr {
 /**
  * 10s microstructure evidence features.
  * Mutated authoritatively only from CLOSED 10s OHLC (one-shot).
- * Continuous descriptive scores — never BUY/SELL triggers.
+ * Continuous normalized measurements — never BUY/SELL or if>X market triggers.
  * Quote/book fields may update from RAW quotes but cannot confirm setup.
  */
 struct MicrostructureFeatures {

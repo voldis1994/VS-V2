@@ -293,3 +293,74 @@ TEST(MicrostructureBrain, AccelerationDecelerationFromSequence) {
     f = micro.snapshot();
     EXPECT_GE(f.deceleration + f.acceleration, 0.0);
 }
+
+TEST(MicrostructureBrain, EvidenceIsContinuousWithoutHardcodedBehaviorGates) {
+    // Gradual vol contraction → continuous compression (no cliff at 0.65).
+    MicrostructureEngine micro;
+    for (int i = 0; i < 8; ++i) {
+        micro.on_closed_10s(make_10s(i * kStep, 100, 102.0, 98.0, 100.5));
+    }
+    const double wide_comp = micro.snapshot().compression;
+
+    for (int i = 8; i < 12; ++i) {
+        const double w = 1.5 - 0.25 * (i - 8);  // steadily tighter
+        micro.on_closed_10s(make_10s(i * kStep, 100.2, 100.2 + w, 100.2 - w, 100.3));
+    }
+    const double mid_comp = micro.snapshot().compression;
+
+    for (int i = 12; i < 15; ++i) {
+        micro.on_closed_10s(make_10s(i * kStep, 100.3, 100.38, 100.22, 100.32));
+    }
+    const double tight_comp = micro.snapshot().compression;
+
+    EXPECT_GE(mid_comp, wide_comp);
+    EXPECT_GE(tight_comp, mid_comp);
+    EXPECT_GT(tight_comp, 0.0);
+
+    // Gradual momentum increase → continuous continuation (no if>X trigger).
+    MicrostructureEngine mom;
+    mom.on_closed_10s(make_10s(0, 100, 100.2, 99.9, 100.1));
+    mom.on_closed_10s(make_10s(kStep, 100.1, 100.4, 100.0, 100.25));
+    const double c1 = mom.snapshot().continuation;
+    mom.on_closed_10s(make_10s(2 * kStep, 100.25, 101.2, 100.2, 101.0));
+    const double c2 = mom.snapshot().continuation;
+    mom.on_closed_10s(make_10s(3 * kStep, 101.0, 103.0, 100.9, 102.8));
+    const double c3 = mom.snapshot().continuation;
+    EXPECT_GE(c2, c1);
+    EXPECT_GE(c3, c2);
+}
+
+TEST(MicrostructureBrain, MicroNormConfigIsStage8Calibratable) {
+    auto cfg_hi = MicroNormConfig::defaults();
+    cfg_hi.compression_scale = 2.0;
+    cfg_hi.continuation_scale = 2.0;
+    cfg_hi.momentum_scale = 0.001;
+
+    auto cfg_lo = MicroNormConfig::defaults();
+    cfg_lo.compression_scale = 0.5;
+    cfg_lo.continuation_scale = 0.5;
+    cfg_lo.momentum_scale = 0.01;
+
+    MicrostructureEngine hi(cfg_hi);
+    MicrostructureEngine lo(cfg_lo);
+
+    auto feed = [](MicrostructureEngine& m) {
+        for (int i = 0; i < 10; ++i) {
+            m.on_closed_10s(make_10s(i * kStep, 100, 101.5, 98.5, 100.4));
+        }
+        for (int i = 10; i < 14; ++i) {
+            m.on_closed_10s(make_10s(i * kStep, 100.4, 100.5, 100.3, 100.45));
+        }
+        m.on_closed_10s(make_10s(14 * kStep, 100.45, 102.5, 100.4, 102.2));
+    };
+    feed(hi);
+    feed(lo);
+
+    EXPECT_GT(hi.snapshot().compression, lo.snapshot().compression);
+    EXPECT_NE(hi.snapshot().continuation, lo.snapshot().continuation);
+    EXPECT_TRUE(hi.snapshot().setup_confirmed);
+    EXPECT_TRUE(lo.snapshot().setup_confirmed);
+    // Config changes evidence scale — never a BUY/SELL gate.
+    EXPECT_GE(hi.snapshot().entry_timing_quality, 0.0);
+    EXPECT_LE(hi.snapshot().entry_timing_quality, 1.0);
+}
