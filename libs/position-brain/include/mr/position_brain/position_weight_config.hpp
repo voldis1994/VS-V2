@@ -5,6 +5,7 @@ namespace mr {
 /**
  * Position-management scales — Stage-8 calibratable.
  * Continuous HOLD/PROTECT/REDUCE/EXIT evidence — not single-candle triggers.
+ * All dynamics / MAE / MFE / protect / reduce mix weights live here (no baked-in market magics).
  */
 struct PositionWeightConfig {
     // Thesis continuity vs degradation
@@ -24,6 +25,16 @@ struct PositionWeightConfig {
     double protect_scale{1.0};
     double reduce_scale{1.0};
     double exit_scale{1.0};
+
+    // Soft dynamics / excursion saturators (Stage-8 calibratable)
+    double dynamics_velocity_scale{1.0};
+    double mae_scale{1.0};
+    double mfe_scale{1.0};
+
+    // Mix weights inside protect / reduce score assembly
+    double protect_degradation_mix{0.5};
+    double reduce_degradation_base{0.5};
+    double reduce_mfe_mix{0.5};
 
     // Geometry management (fractions of entry thesis distances; not magic market cuts)
     double stop_tighten_frac{1.0};

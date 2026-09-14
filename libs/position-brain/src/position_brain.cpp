@@ -84,15 +84,16 @@ PositionDecision PositionBrain::evaluate(PositionState& pos,
 
     const double dyn_against =
         pos.direction == Direction::Long
-            ? soft01(std::max(0.0, -pd.velocity), 1.0)
-            : pos.direction == Direction::Short ? soft01(std::max(0.0, pd.velocity), 1.0)
-                                                : 0.0;
+            ? soft01(std::max(0.0, -pd.velocity), cfg_.dynamics_velocity_scale)
+            : pos.direction == Direction::Short
+                  ? soft01(std::max(0.0, pd.velocity), cfg_.dynamics_velocity_scale)
+                  : 0.0;
 
     const double degradation = soft01(
         cfg_.w_invalidation * inv
             + cfg_.w_reversal * rev
             + cfg_.w_thesis_quality * thesis_drop
-            + cfg_.w_mae * soft01(pos.mae, 1.0)
+            + cfg_.w_mae * soft01(pos.mae, cfg_.mae_scale)
             + cfg_.w_dynamics * dyn_against,
         cfg_.degradation_scale);
 
@@ -132,11 +133,14 @@ PositionDecision PositionBrain::evaluate(PositionState& pos,
     const double exit_score = soft01(degradation + inv + rev, cfg_.exit_scale);
     const double protect_score = soft01(
         (1.0 - pos.peak_retention) * cfg_.w_peak_retention
-            + degradation * 0.5
+            + degradation * cfg_.protect_degradation_mix
             + (1.0 - continuation_strength),
         cfg_.protect_scale);
     const double reduce_score = soft01(
-        degradation * (0.5 + 0.5 * soft01(pos.mfe, 1.0)) + thesis_drop,
+        degradation
+                * (cfg_.reduce_degradation_base
+                   + cfg_.reduce_mfe_mix * soft01(pos.mfe, cfg_.mfe_scale))
+            + thesis_drop,
         cfg_.reduce_scale);
     const double hold_score = clamp01(continuation_strength * (1.0 - exit_score));
 

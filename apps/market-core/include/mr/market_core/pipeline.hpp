@@ -18,15 +18,26 @@
 #include "mr/common/config.hpp"
 #include "mr/market_types/quote.hpp"
 #include "mr/market_types/market_clock.hpp"
+#include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace mr {
 
+/**
+ * Live path: DecisionEngine (sole BUY/SELL/WAIT) → RiskEngine (veto/size) →
+ * ExecutionEngine (lifecycle) → Fill → PositionBrain (HOLD/PROTECT/REDUCE/EXIT).
+ * EXIT/REDUCE management also routes through ExecutionEngine.
+ * No second decision brain.
+ */
 class MarketCorePipeline {
 public:
     MarketCorePipeline();
     void configure(const ConfigRegistry& config);
+
+    /** Bind Capital order transport — enables live ExecutionEngine path. */
+    void bind_order_gateway(OrderGateway& gateway);
 
     /** RAW QUOTE path — never updates structure authority. */
     void process_event(const MarketEvent& event);
@@ -48,6 +59,29 @@ public:
     [[nodiscard]] const MicrostructureEngine& micro() const { return micro_; }
     [[nodiscard]] BrainSnapshot brain_snapshot() const { return brain_.snapshot(); }
     [[nodiscard]] bool has_account_equity() const { return account_equity_.has_value(); }
+    [[nodiscard]] bool has_execution() const { return static_cast<bool>(execution_); }
+    [[nodiscard]] const std::vector<PositionState>& open_positions() const { return open_positions_; }
+    [[nodiscard]] PositionBrain& position_brain() { return position_; }
+    [[nodiscard]] ExecutionEngine* execution() { return execution_.get(); }
+
+    /**
+     * Continue after DecisionEngine produced EntryReady.
+     * Path: Risk veto/size → Execution submit/fill → PositionBrain open → BrainState.
+     * Does not invent BUY/SELL/WAIT.
+     */
+    bool enter_from_decision(const TradeIntent& intent,
+                             const DualPrediction& dual,
+                             double mid,
+                             double spread);
+
+    /**
+     * Drive PositionBrain on open positions after market/Brain updates.
+     * EXIT/REDUCE route through ExecutionEngine when a gateway is bound.
+     */
+    void update_open_positions(InstrumentId instrument,
+                               const DualPrediction& dual,
+                               const PriceDynamics& pd,
+                               double mid);
 
 private:
     void handle_clock_events(const std::vector<MarketClockEvent>& events,
@@ -58,6 +92,19 @@ private:
                                const PriceDynamics& pd,
                                const ConsensusQuote& consensus,
                                InstrumentId instrument);
+    void execute_entry(const TradeIntent& intent,
+                       const RiskDecision& risk,
+                       const DualPrediction& dual,
+                       Timestamp ts);
+    void manage_open_positions(InstrumentId instrument,
+                               const DualPrediction& dual,
+                               const PriceDynamics& pd,
+                               double mid,
+                               Timestamp ts);
+    void apply_position_action(PositionState& pos,
+                               const PositionDecision& decision,
+                               double mid,
+                               Timestamp ts);
 
     SystemClock clock_;
     Normalizer normalizer_;
@@ -73,9 +120,12 @@ private:
     DecisionEngine decision_;
     RiskEngine risk_;
     PositionBrain position_;
+    std::unique_ptr<ExecutionEngine> execution_;
     TelemetryHub telemetry_;
     IdGenerator intent_ids_;
     std::vector<TradeIntent> pending_;
+    std::vector<PositionState> open_positions_;
+    std::unordered_map<InstrumentId, DualPrediction> last_dual_;
     double stale_ms_{500};
     std::optional<double> account_equity_{};  // unset => risk fail-closed
 };

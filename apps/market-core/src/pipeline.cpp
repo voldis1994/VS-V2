@@ -1,4 +1,5 @@
 #include "mr/market_core/pipeline.hpp"
+#include <algorithm>
 
 namespace mr {
 
@@ -8,6 +9,10 @@ void MarketCorePipeline::configure(const ConfigRegistry& config) {
     if (!config.feeds().empty()) {
         stale_ms_ = config.feeds().front().stale_threshold_ms;
     }
+}
+
+void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
+    execution_ = std::make_unique<ExecutionEngine>(gateway);
 }
 
 void MarketCorePipeline::set_account_equity(double equity) {
@@ -35,6 +40,22 @@ void MarketCorePipeline::process_event(const MarketEvent& event) {
     micro_.update(norm);
 
     handle_clock_events(clock_events, pd, consensus, norm.instrument);
+
+    // Open positions keep receiving market updates — PositionBrain management only.
+    if (!open_positions_.empty()) {
+        DualPrediction dual{};
+        const auto it = last_dual_.find(norm.instrument);
+        if (it != last_dual_.end()) {
+            dual = it->second;
+        } else {
+            const auto snap = brain_.snapshot();
+            const auto bit = snap.instruments.find(norm.instrument);
+            if (bit != snap.instruments.end() && bit->second.has_prediction) {
+                dual = bit->second.prediction;
+            }
+        }
+        manage_open_positions(norm.instrument, dual, pd, consensus.mid, norm.normalized_timestamp);
+    }
 }
 
 void MarketCorePipeline::process_authority_ohlc(const Candle& closed, Timeframe tf) {
@@ -54,7 +75,7 @@ void MarketCorePipeline::process_authority_ohlc(const Candle& closed, Timeframe 
         consensus.spread = 0;
         consensus.sources = 1;
         consensus.confidence = 1.0;
-        // Decision runs on authority close after structure update.
+        // Decision + risk (+ execution when gateway bound) after structure update.
         run_decision_and_risk(st, pd, consensus, ev.instrument);
     }
 }
@@ -66,21 +87,16 @@ void MarketCorePipeline::handle_clock_events(const std::vector<MarketClockEvent>
     for (const auto& ev : events) {
         switch (ev.kind) {
             case MarketClockKind::RawQuote:
-                // Already handled in process_event.
                 break;
             case MarketClockKind::FormingCandle:
-                // Forming is observable state only — no structure, no decision.
                 break;
             case MarketClockKind::ClosedTenSecond:
-                // One-shot CLOSED 10s: microstructure evidence authority only.
-                // Must never rewrite 1m+ broad structure.
                 if (!ev.one_shot || !ev.candle.has_value()) break;
                 micro_.on_closed_10s(*ev.candle);
                 brain_.apply_micro_evidence(instrument, micro_.snapshot(), ev.ts);
                 break;
             case MarketClockKind::ClosedOneMinute:
             case MarketClockKind::ClosedHigherTimeframe:
-                // Quote-derived closes are not Capital authority; ignore for structure.
                 if (ev.structure_authority && ev.candle.has_value()) {
                     structure_.on_authority_close(*ev.candle, ev.timeframe, pd);
                     auto st = structure_.snapshot();
@@ -105,7 +121,11 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     // Stage 5: prediction from structure + CLOSED 10s micro (concepts are context, not triggers).
     const auto micro_snap = micro_.snapshot();
     auto dual = prediction_.evaluate(st, structure_.has_authority(), micro_snap, pd);
+    last_dual_[instrument] = dual;
     brain_.apply_prediction(instrument, dual, /*ts*/ Timestamp{});
+
+    // Position management on every authority cycle — not a second entry DecisionEngine.
+    manage_open_positions(instrument, dual, pd, consensus.mid, Timestamp{});
 
     // DecisionEngine is the sole BUY/SELL/WAIT source — relative LONG vs SHORT EV.
     auto sides = decision_.evaluate(dual, consensus.spread, instrument);
@@ -122,6 +142,14 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     if (intent.decision != EntryDecision::EntryReady) {
         telemetry_.record_decision();
         return;
+    }
+
+    // One live position per instrument — no pyramiding via a second brain.
+    for (const auto& p : open_positions_) {
+        if (p.instrument == instrument && p.quantity > 0.0) {
+            telemetry_.record_decision();
+            return;
+        }
     }
 
     RiskRequest req;
@@ -146,14 +174,143 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     }
 
     risk_.remember_order(intent.instrument, intent.direction, intent.created_at);
-    pending_.push_back(intent);
+
+    if (execution_) {
+        execute_entry(intent, risk, dual, Timestamp{});
+    } else {
+        pending_.push_back(intent);
+    }
     telemetry_.record_decision();
+}
+
+void MarketCorePipeline::execute_entry(const TradeIntent& intent,
+                                       const RiskDecision& risk,
+                                       const DualPrediction& dual,
+                                       Timestamp ts) {
+    if (!execution_) return;
+    const double qty = risk.approved_quantity > 0.0 ? risk.approved_quantity : 0.0;
+    auto exec = execution_->submit(intent, qty);
+    brain_.apply_execution(intent.instrument, exec, ts);
+    if (exec.status != ExecutionStatus::Filled) {
+        return;
+    }
+
+    const auto thesis = PositionBrain::side_for(dual, intent.direction);
+    auto pos = position_.open(intent, exec.fill_price, exec.filled_quantity, thesis);
+    pos.deal_id = exec.deal_id;
+    PositionDecision hold;
+    hold.action = PositionAction::Hold;
+    hold.reason_codes.push_back("OPEN");
+    brain_.apply_position(intent.instrument, pos, hold, ts);
+    open_positions_.push_back(std::move(pos));
+}
+
+void MarketCorePipeline::manage_open_positions(InstrumentId instrument,
+                                               const DualPrediction& dual,
+                                               const PriceDynamics& pd,
+                                               double mid,
+                                               Timestamp ts) {
+    if (!(mid > 0.0) || open_positions_.empty()) return;
+
+    for (auto& pos : open_positions_) {
+        if (pos.instrument != instrument || !(pos.quantity > 0.0)) continue;
+        pos.current_price = mid;
+        const auto side = PositionBrain::side_for(dual, pos.direction);
+        auto decision = position_.evaluate(pos, side, pd);
+        if (decision.action == PositionAction::Protect && decision.suggested_stop > 0.0) {
+            pos.stop_loss = decision.suggested_stop;
+        }
+        apply_position_action(pos, decision, mid, ts);
+        brain_.apply_position(instrument, pos, decision, ts);
+    }
+
+    open_positions_.erase(
+        std::remove_if(open_positions_.begin(), open_positions_.end(),
+                       [](const PositionState& p) { return !(p.quantity > 0.0); }),
+        open_positions_.end());
+}
+
+void MarketCorePipeline::apply_position_action(PositionState& pos,
+                                               const PositionDecision& decision,
+                                               double mid,
+                                               Timestamp ts) {
+    if (!execution_) return;
+
+    if (decision.action == PositionAction::Exit) {
+        auto exec = execution_->close(pos.deal_id, pos.intent_id);
+        brain_.apply_execution(pos.instrument, exec, ts);
+        if (exec.status == ExecutionStatus::Filled) {
+            pos.quantity = 0.0;
+        }
+        return;
+    }
+
+    if (decision.action == PositionAction::Reduce) {
+        const double frac = std::clamp(decision.reduce_fraction, 0.0, 1.0);
+        const double qty = pos.quantity * frac;
+        if (!(qty > 0.0)) return;
+        auto exec = execution_->reduce(pos, qty, mid);
+        brain_.apply_execution(pos.instrument, exec, ts);
+        if (exec.status == ExecutionStatus::Filled) {
+            pos.quantity = std::max(0.0, pos.quantity - exec.filled_quantity);
+        }
+    }
 }
 
 std::vector<TradeIntent> MarketCorePipeline::drain_pending_intents() {
     auto out = pending_;
     pending_.clear();
     return out;
+}
+
+bool MarketCorePipeline::enter_from_decision(const TradeIntent& intent,
+                                             const DualPrediction& dual,
+                                             double mid,
+                                             double spread) {
+    if (intent.decision != EntryDecision::EntryReady) return false;
+
+    for (const auto& p : open_positions_) {
+        if (p.instrument == intent.instrument && p.quantity > 0.0) return false;
+    }
+
+    last_dual_[intent.instrument] = dual;
+
+    RiskRequest req;
+    req.intent = intent;
+    req.mid_price = mid > 0.0 ? mid : intent.reference_price;
+    req.spread = spread;
+    req.spread_cost = spread;
+    req.data_fresh = mid > 0.0;
+    req.broker_healthy = true;
+    if (account_equity_.has_value()) {
+        req.account_equity = *account_equity_;
+    } else {
+        req.account_equity = 0;
+    }
+
+    auto risk = risk_.evaluate(req);
+    brain_.apply_risk(intent.instrument, risk, intent.created_at);
+    if (!risk.approved) return false;
+
+    risk_.remember_order(intent.instrument, intent.direction, intent.created_at);
+
+    if (!execution_) {
+        pending_.push_back(intent);
+        return true;
+    }
+
+    execute_entry(intent, risk, dual, intent.created_at);
+    return !open_positions_.empty()
+           && open_positions_.back().instrument == intent.instrument
+           && open_positions_.back().quantity > 0.0;
+}
+
+void MarketCorePipeline::update_open_positions(InstrumentId instrument,
+                                               const DualPrediction& dual,
+                                               const PriceDynamics& pd,
+                                               double mid) {
+    last_dual_[instrument] = dual;
+    manage_open_positions(instrument, dual, pd, mid, Timestamp{});
 }
 
 }  // namespace mr

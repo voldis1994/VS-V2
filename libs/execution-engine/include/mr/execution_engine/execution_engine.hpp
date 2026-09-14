@@ -5,6 +5,7 @@
 #include "mr/execution_engine/execution_weight_config.hpp"
 #include "mr/execution_engine/execution_types.hpp"
 #include "mr/decision/trade_decision.hpp"
+#include "mr/position_brain/position_types.hpp"
 #include <unordered_map>
 
 namespace mr {
@@ -12,6 +13,7 @@ namespace mr {
 /**
  * ExecutionEngine — Capital BUY/SELL order lifecycle only.
  * Never chooses trades. Consumes DecisionEngine intents already risk-approved.
+ * EXIT/REDUCE management also routes here — no thesis invention.
  */
 class ExecutionEngine {
 public:
@@ -26,6 +28,12 @@ public:
 
     /** Close via Capital deal id — management path, not a new thesis. */
     ExecutionReport close(const std::string& deal_id, TradeIntentId intent_id = 0);
+
+    /**
+     * Reduce open quantity via opposite-side Capital order — management path only.
+     * Quantity/side come from PositionBrain output; this does not choose REDUCE.
+     */
+    ExecutionReport reduce(const PositionState& pos, double quantity, double price);
 
     [[nodiscard]] const FillTracker& fills() const { return fills_; }
     [[nodiscard]] bool was_recent_duplicate(InstrumentId instrument,

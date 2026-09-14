@@ -118,4 +118,59 @@ ExecutionReport ExecutionEngine::close(const std::string& deal_id, TradeIntentId
     return rep;
 }
 
+ExecutionReport ExecutionEngine::reduce(const PositionState& pos, double quantity, double price) {
+    ExecutionReport rep;
+    rep.intent_id = pos.intent_id;
+    rep.instrument = pos.instrument;
+    rep.requested_quantity = quantity;
+    // Opposite side of the open position — management flatten, not a new thesis.
+    rep.direction = pos.direction == Direction::Long ? Direction::Short
+                    : pos.direction == Direction::Short ? Direction::Long
+                                                        : Direction::Flat;
+
+    if (cfg_.require_positive_quantity && !(quantity > 0.0)) {
+        rep.status = ExecutionStatus::Rejected;
+        rep.reason_codes.push_back("INVALID_QUANTITY");
+        rep.explanation = "Non-positive reduce quantity";
+        return rep;
+    }
+    if (rep.direction == Direction::Flat) {
+        rep.status = ExecutionStatus::Rejected;
+        rep.reason_codes.push_back("INVALID_DIRECTION");
+        return rep;
+    }
+    if (!gateway_.healthy()) {
+        rep.status = ExecutionStatus::Rejected;
+        rep.reason_codes.push_back("BROKER_UNHEALTHY");
+        return rep;
+    }
+
+    CapitalOrderRequest req;
+    req.instrument = pos.instrument;
+    req.direction = rep.direction;
+    req.quantity = quantity;
+    req.price = price > 0.0 ? price : pos.current_price;
+    req.stop_loss = 0.0;
+    req.take_profit = 0.0;
+
+    rep.status = ExecutionStatus::Submitted;
+    auto resp = gateway_.create_position(req);
+    rep.last_response = resp;
+    rep.attempts = 1;
+    if (resp.success) {
+        fills_.record({resp, now_utc_ns()});
+        rep.status = ExecutionStatus::Filled;
+        rep.deal_id = resp.deal_id;
+        rep.fill_price = resp.fill_price > 0.0 ? resp.fill_price : req.price;
+        rep.filled_quantity =
+            resp.filled_quantity > 0.0 ? resp.filled_quantity : quantity;
+        rep.explanation = "reduced";
+    } else {
+        rep.status = ExecutionStatus::Rejected;
+        rep.reason_codes.push_back("REDUCE_REJECTED");
+        rep.explanation = resp.error_message;
+    }
+    return rep;
+}
+
 }  // namespace mr

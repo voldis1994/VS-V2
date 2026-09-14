@@ -8,5 +8,9 @@ add_library(mr_execution_engine STATIC
     src/execution_engine.cpp)
 add_library(mr::execution-engine ALIAS mr_execution_engine)
 target_include_directories(mr_execution_engine PUBLIC include)
-target_link_libraries(mr_execution_engine PUBLIC mr::capital-client mr::decision-engine mr::common)
+target_link_libraries(mr_execution_engine PUBLIC
+    mr::capital-client
+    mr::decision-engine
+    mr::position-brain
+    mr::common)
 target_compile_features(mr_execution_engine PUBLIC cxx_std_20)

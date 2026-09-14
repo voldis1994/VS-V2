@@ -57,3 +57,14 @@ target_link_libraries(test_risk_execution_position_brain PRIVATE
   GTest::gtest
   GTest::gtest_main)
 add_test(NAME test_risk_execution_position_brain COMMAND test_risk_execution_position_brain)
+
+add_executable(test_stage6_lifecycle_integration test_stage6_lifecycle_integration.cpp)
+target_link_libraries(test_stage6_lifecycle_integration PRIVATE
+  mr::market-core
+  mr::execution-engine
+  mr::position-brain
+  mr::risk-engine
+  mr::brain-core
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_stage6_lifecycle_integration COMMAND test_stage6_lifecycle_integration)
