@@ -314,6 +314,7 @@ CapitalOrderResponse CapitalClient::create_position(const CapitalOrderRequest& r
     body["size"] = request.quantity;
     if (request.stop_loss > 0) body["stopLevel"] = request.stop_loss;
     if (request.take_profit > 0) body["profitLevel"] = request.take_profit;
+    if (!request.client_order_id.empty()) body["clientOrderId"] = request.client_order_id;
 
     auto result = http_request_with_retry("POST", "/api/v1/positions", body);
     if (!result.ok() || !result.body.contains("dealReference")) {
@@ -343,6 +344,12 @@ std::vector<CapitalPosition> CapitalClient::positions() {
     for (const auto& p : result.body["positions"]) {
         CapitalPosition pos;
         pos.deal_id = p.value("dealId", "");
+        if (p.contains("market") && p["market"].is_object()) {
+            pos.epic = p["market"].value("epic", "");
+        } else {
+            pos.epic = p.value("epic", "");
+        }
+        // instrument id resolved by LiveCapitalBootstrap via InstrumentMap reverse lookup
         if (p.contains("position") && p["position"].is_object()) {
             const auto& posj = p["position"];
             pos.entry_price = posj.value("level", 0.0);

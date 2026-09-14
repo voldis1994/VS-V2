@@ -152,7 +152,7 @@ describe('liveBrainFeed', () => {
     );
     expect(getLiveBrainSnapshot()).toBeNull();
     expect(getBrainFeedStatus().invents_decisions).toBe(false);
-    expect(getBrainFeedStatus().authoritative).toBe(true);
+    expect(getBrainFeedStatus().authoritative).toBe(false); // fail-closed until snapshot connected
   });
 
   it('stores authoritative snapshot and detail events', () => {

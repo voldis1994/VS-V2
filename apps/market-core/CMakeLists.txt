@@ -12,6 +12,8 @@ add_library(mr_market_core STATIC
     src/episode_replay.cpp
     src/weight_bundle.cpp
     src/candidate_replay_eval.cpp
+    src/live_capital_bootstrap.cpp
+    src/model_bundle_store.cpp
 )
 add_library(mr::market-core ALIAS mr_market_core)
 target_include_directories(mr_market_core PUBLIC include src)

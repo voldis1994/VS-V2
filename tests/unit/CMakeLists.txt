@@ -105,3 +105,17 @@ target_link_libraries(test_brain_feed_json PRIVATE
   GTest::gtest
   GTest::gtest_main)
 add_test(NAME test_brain_feed_json COMMAND test_brain_feed_json)
+
+add_executable(test_stage10_full_integration_e2e test_stage10_full_integration_e2e.cpp)
+target_link_libraries(test_stage10_full_integration_e2e PRIVATE
+  mr::market-core
+  mr::memory-engine
+  mr::execution-engine
+  mr::position-brain
+  mr::prediction-engine
+  mr::decision-engine
+  mr::risk-engine
+  mr::brain-core
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_stage10_full_integration_e2e COMMAND test_stage10_full_integration_e2e)

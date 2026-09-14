@@ -1,5 +1,6 @@
 #include "mr/market_core/brain_runtime.hpp"
 #include "mr/market_core/brain_json.hpp"
+#include <nlohmann/json.hpp>
 
 #include <cstdlib>
 
@@ -54,6 +55,15 @@ void BrainRuntime::maybe_publish() {
         brain_snapshot_to_json(latest_, model_id_, model_version_, mode_str(mode_), runtime_);
     last_publish_http_ =
         publish_brain_snapshot_to_control_api(body, control_api_url_, pipeline_token_);
+    // Liveness for dashboard / client panel — no trading decisions.
+    nlohmann::json hb = {{"epics", nlohmann::json::array()}};
+    if (!runtime_.market_core_health.empty()) {
+        hb["market_core_health"] = runtime_.market_core_health;
+    }
+    if (!runtime_.execution_health.empty()) {
+        hb["execution_health"] = runtime_.execution_health;
+    }
+    publish_pipeline_heartbeat_to_control_api(hb, control_api_url_, pipeline_token_);
     last_publish_ = now;
     ++publish_attempts_;
 }

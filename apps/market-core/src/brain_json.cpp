@@ -257,4 +257,39 @@ int publish_brain_snapshot_to_control_api(const nlohmann::json& body,
     return static_cast<int>(http);
 }
 
+
+int publish_pipeline_heartbeat_to_control_api(const nlohmann::json& body,
+                                              const std::string& control_api_url,
+                                              const std::string& pipeline_token) {
+    if (control_api_url.empty()) return -1;
+    const std::string url = control_api_url + "/api/pipeline/heartbeat";
+    const std::string payload = body.dump();
+
+    CURL* curl = curl_easy_init();
+    if (!curl) return -1;
+
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    if (!pipeline_token.empty()) {
+        const std::string auth = "x-pipeline-token: " + pipeline_token;
+        headers = curl_slist_append(headers, auth.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, sink);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
+
+    const CURLcode rc = curl_easy_perform(curl);
+    long http = -1;
+    if (rc == CURLE_OK) {
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http);
+    }
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return static_cast<int>(http);
+}
+
 }  // namespace mr

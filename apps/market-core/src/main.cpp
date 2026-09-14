@@ -1,8 +1,10 @@
 #include "mr/market_core/runtime.hpp"
+#include "mr/market_core/live_capital_bootstrap.hpp"
 #include "mr/market_core/capital_env.hpp"
 #include "mr/brain/brain_version.hpp"
 #include "mr/capital/capital_client.hpp"
 #include <atomic>
+#include <cstdlib>
 #include <csignal>
 #include <iostream>
 #include <string>
@@ -62,14 +64,45 @@ int main(int argc, char** argv) {
         feed.source = 1;
         feed.epic = creds.epic;
 
-        std::cout << "VS-V2 market-core live multi-clock path starting epic=" << creds.epic
-                  << std::endl;
-        runtime.run_live(client, feed, g_running);
+        mr::LiveCapitalBootstrapConfig boot;
+        boot.instrument = 1;
+        boot.epic = creds.epic;
+        boot.operating_mode = (runtime_mode == mr::RuntimeMode::Live)
+                                  ? mr::OperatingMode::Live
+                                  : mr::OperatingMode::Demo;
+        boot.enable_execution = true;
+        if (const char* mp = std::getenv("VS_V2_MODEL_PATH")) {
+            boot.model_path = mp;
+        }
+        if (const char* mid = std::getenv("VS_V2_MODEL_ID")) {
+            boot.model_id = mid;
+        }
+        if (const char* mv = std::getenv("VS_V2_MODEL_VERSION")) {
+            boot.model_version = mv;
+        }
+
+        mr::LiveCapitalBootstrap bootstrap(runtime, client);
+                if (!bootstrap.prepare(boot)) {
+            if (!boot.model_path.empty()) {
+                std::cerr << "LiveCapitalBootstrap prepare failed with VS_V2_MODEL_PATH set — fail-closed\n";
+                return 4;
+            }
+            std::cerr << "LiveCapitalBootstrap prepare failed (model/weights) — continuing with defaults\n";
+        }
+
+        std::cout << "VS-V2 market-core LIVE chain starting epic=" << creds.epic
+                  << " execution=bound open_positions="
+                  << runtime.pipeline().open_positions().size() << std::endl;
+        bootstrap.run(feed, g_running);
         std::cout << "VS-V2 market-core live path stopped" << std::endl;
         return 0;
     }
 
-    // PAPER / REPLAY: persistent runtime until SIGINT/SIGTERM.
+    // PAPER / REPLAY: no Capital LIVE gateway — fail-closed for broker health.
+    runtime.pipeline().set_operating_mode(
+        runtime_mode == mr::RuntimeMode::Replay ? mr::OperatingMode::Replay
+                                                : mr::OperatingMode::Paper);
+    runtime.pipeline().set_broker_healthy(false);
     std::cout << "VS-V2 market-core paper runtime persistent mode=" << mode << std::endl;
     runtime.run_paper(g_running);
     std::cout << "VS-V2 market-core paper runtime stopped" << std::endl;

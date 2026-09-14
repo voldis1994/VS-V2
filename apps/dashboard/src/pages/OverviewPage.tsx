@@ -323,7 +323,7 @@ export function OverviewPage() {
             <div className="metric-box">
               <div className="label">Operating mode</div>
               <div className="value" style={{ fontSize: 12 }}>
-                {(status?.mode || 'LIVE').toUpperCase()}
+                {(status?.mode || 'PAPER').toUpperCase()}
               </div>
             </div>
             <div className="metric-box">
@@ -337,7 +337,7 @@ export function OverviewPage() {
                 key={m}
                 type="button"
                 className={`regime-chip ${
-                  (status?.mode || 'LIVE').toUpperCase() === m ? 'on up' : 'flat'
+                  (status?.mode || 'PAPER').toUpperCase() === m ? 'on up' : 'flat'
                 }`}
                 disabled={busy}
                 onClick={() => void applyOperatingMode(m)}
@@ -621,7 +621,7 @@ export function OverviewPage() {
           <div className="section-title">AI INFO LOG</div>
           <div className="log-list tall">
             <div>Conf 72% · desk sync {(status?.server_time && new Date(status.server_time).toLocaleTimeString()) || '—'}</div>
-            <div>Mode {(status?.mode || 'LIVE').toUpperCase()} · live {status?.live_enabled === false ? 'OFF' : 'ON'}</div>
+            <div>Mode {(status?.mode || 'PAPER').toUpperCase()} · live {status?.live_enabled === true ? 'ON' : 'OFF'}</div>
             <div>Capital live brokers: {status?.brokers_live ?? 0}</div>
             <div>Markets cached: {(status?.capital_markets ?? totalMarkets).toLocaleString()}</div>
             {events.slice(0, 6).map((e, i) => (

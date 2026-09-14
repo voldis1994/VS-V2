@@ -75,6 +75,13 @@ public:
     void set_account_equity(double equity);
     void clear_account_equity();
 
+    /** Restart recovery — load broker-open positions without inventing entries. */
+    void hydrate_open_positions(std::vector<PositionState> recovered);
+
+    /** Fail-closed broker probe for RiskEngine (false when no gateway / unhealthy). */
+    void set_broker_healthy(bool healthy) { broker_healthy_ = healthy; }
+    [[nodiscard]] bool broker_healthy() const;
+
     [[nodiscard]] std::vector<TradeIntent> pending_intents() const { return pending_; }
     std::vector<TradeIntent> drain_pending_intents();
     [[nodiscard]] TelemetryHub& telemetry() { return telemetry_; }
@@ -161,6 +168,7 @@ private:
     std::unordered_map<InstrumentId, DualPrediction> last_dual_;
     double stale_ms_{500};
     std::optional<double> account_equity_{};  // unset => risk fail-closed
+    bool broker_healthy_{false};  // fail-closed until LIVE gateway proves healthy
     OperatingMode mode_{OperatingMode::Live};
     EpisodeRecorder* recorder_{nullptr};
 };

@@ -37,6 +37,7 @@ import {
   type MultiFeedLeg,
 } from './robotReader.js';
 import {
+import { marketCoreAuthoritative } from '../config/environment.js';
   aggregateSecondsToTen,
   emptyTenSecState,
   publicOhlc10s,
@@ -1251,7 +1252,11 @@ async function robotCycle(s: Internal) {
     let setupType: string | null = null;
 
     if (s.ohlcState.just_closed && bar) {
-      const sig = decideEntryFrom10sRegime(bar, s.regime);
+      if (marketCoreAuthoritative()) {
+      // C++ market-core owns entry — no parallel TS trading brain.
+      return;
+    }
+    const sig = decideEntryFrom10sRegime(bar, s.regime);
       if (sig) {
         direction = sig.direction;
         setupType = sig.setup;
@@ -1389,7 +1394,9 @@ export async function startRobotSession(input: {
     open_side: null,
     safety_sl: null,
     error: null,
-    entry_enabled: input.entry_enabled !== false,
+    entry_enabled: marketCoreAuthoritative()
+      ? false
+      : input.entry_enabled !== false,
     timer: null,
     closed_at_ms: 0,
     peak_favorable: 0,

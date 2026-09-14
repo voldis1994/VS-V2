@@ -22,7 +22,7 @@ export function SettingsPage() {
         body: JSON.stringify({ mode: 'LIVE' }),
       });
       setNewMode('LIVE');
-      setMsg('LIVE ON — no gates');
+      setMsg('LIVE armed — requires explicit LIVE_TRADING_ENABLED');
       refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed');
@@ -36,7 +36,7 @@ export function SettingsPage() {
     setMsg(null);
     setBusy(true);
     try {
-      const mode = newMode || String(data?.operating_mode || 'LIVE');
+      const mode = newMode || String(data?.operating_mode || 'PAPER');
       await apiFetch('/api/system/mode', {
         method: 'POST',
         body: JSON.stringify({ mode }),
@@ -53,15 +53,15 @@ export function SettingsPage() {
   return (
     <div>
       <h1 className="page-title">Settings</h1>
-      <p className="page-subtitle">No confirm gates · operator accepts risk</p>
+      <p className="page-subtitle">Fail-closed defaults · LIVE trading requires explicit arming</p>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="section-title">LIVE</div>
         <p style={{ marginBottom: 12 }}>
           Status:{' '}
           <span className="badge badge-unhealthy">
-            {data?.live_trading_enabled === false ? 'OFF' : 'ON'} ·{' '}
-            {String(data?.operating_mode ?? 'LIVE')}
+            {data?.live_trading_enabled === true ? 'ON' : 'OFF'} ·{' '}
+            {String(data?.operating_mode ?? 'PAPER')}
           </span>
         </p>
         <div className="actions">
@@ -79,7 +79,7 @@ export function SettingsPage() {
           <select
             className="input"
             style={{ maxWidth: 200 }}
-            value={newMode || String(data?.operating_mode || 'LIVE')}
+            value={newMode || String(data?.operating_mode || 'PAPER')}
             onChange={(e) => setNewMode(e.target.value)}
           >
             <option value="REPLAY">REPLAY</option>
@@ -99,7 +99,7 @@ export function SettingsPage() {
           <div>Primary Horizon: <strong>{String(data?.primary_horizon_ms)}ms</strong></div>
           <div>Entry TTL: <strong>{String(data?.entry_ttl_ms)}ms</strong></div>
           <div>Log Level: <strong>{String(data?.log_level)}</strong></div>
-          <div>Live Enabled: <strong>{String(data?.live_trading_enabled !== false)}</strong></div>
+          <div>Live Enabled: <strong>{String(data?.live_trading_enabled === true)}</strong></div>
         </div>
       </div>
     </div>

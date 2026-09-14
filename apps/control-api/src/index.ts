@@ -70,10 +70,10 @@ function trustProxyOption(): boolean | string | string[] | number {
 
 async function main() {
   if (process.env.LIVE_TRADING_ENABLED === undefined || process.env.LIVE_TRADING_ENABLED === '') {
-    process.env.LIVE_TRADING_ENABLED = 'true';
+    process.env.LIVE_TRADING_ENABLED = 'false';
   }
   if (process.env.OPERATING_MODE === undefined || process.env.OPERATING_MODE === '') {
-    process.env.OPERATING_MODE = 'LIVE';
+    process.env.OPERATING_MODE = 'PAPER';
   }
 
   await runMigrations();

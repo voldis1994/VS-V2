@@ -106,6 +106,7 @@ export async function registerRobotDeskRoutes(app: FastifyInstance): Promise<voi
         display_name: body.display_name,
         lot_size: Number(body.lot_size),
         trading_enabled: body.trading_enabled !== false,
+        entry_enabled: false, // Stage-10: C++ market-core is authoritative entry brain
       });
       return { success: true, session };
     } catch (err) {

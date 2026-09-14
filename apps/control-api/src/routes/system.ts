@@ -1,11 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { pool, healthCheck } from '../db/pool.js';
 import { TelemetryBroadcaster } from '../ws/telemetry.js';
+import { getBrainFeedStatus } from '../services/liveBrainFeed.js';
+import { getPipelineBridgeStatus } from '../services/pipelineBridge.js';
+import { marketCoreAuthoritative } from '../config/environment.js';
 
 function liveEnabled(): boolean {
   const v = process.env.LIVE_TRADING_ENABLED;
-  if (v === undefined || v === '') return true;
-  return v !== 'false' && v !== '0';
+  if (v === undefined || v === '') return false; // fail-closed
+  return v === 'true' || v === '1';
 }
 
 export async function registerSystemRoutes(
@@ -55,8 +58,8 @@ export async function registerSystemRoutes(
     }
 
     return {
-      market_core: 'HEALTHY',
-      execution: 'HEALTHY',
+      market_core: (() => { const b = getBrainFeedStatus(); const p = getPipelineBridgeStatus(); if (b.connected || p.healthy) return 'HEALTHY'; if (b.last_error || p.last_error) return 'UNHEALTHY'; return 'UNKNOWN'; })(),
+      execution: (() => { const b = getBrainFeedStatus(); if (!b.connected) return 'UNKNOWN'; return b.connected ? 'HEALTHY' : 'UNKNOWN'; })(),
       database: dbOk ? 'HEALTHY' : 'UNHEALTHY',
       postgres: dbOk ? 'ok' : 'down',
       redis: 'ok',
@@ -69,16 +72,19 @@ export async function registerSystemRoutes(
       capital_markets: capitalMarkets,
       open_positions: openPositions,
       today_executions: todayExecutions,
-      mode: process.env.OPERATING_MODE || 'LIVE',
+      mode: process.env.OPERATING_MODE || 'PAPER',
       live_enabled: liveEnabled(),
       server_time: new Date().toISOString(),
       latency: telemetry.getLatestMetrics(),
-      status: dbOk ? 'LIVE' : 'DEGRADED',
+      status: !dbOk ? 'DEGRADED' : (liveEnabled() && (process.env.OPERATING_MODE || 'PAPER') === 'LIVE' ? 'LIVE' : 'READY'),
+      market_core_authoritative: marketCoreAuthoritative(),
+      brain_feed: getBrainFeedStatus(),
+      pipeline_bridge: getPipelineBridgeStatus(),
     };
   });
 
   app.get('/api/system/mode', async () => ({
-    mode: process.env.OPERATING_MODE || 'LIVE',
+    mode: process.env.OPERATING_MODE || 'PAPER',
     live_enabled: liveEnabled(),
     allowed: ['REPLAY', 'PAPER', 'DEMO', 'LIVE'],
   }));
@@ -90,10 +96,10 @@ export async function registerSystemRoutes(
     if (!allowed.includes(body.mode)) {
       return reply.code(400).send({ error: `Invalid mode. Use: ${allowed.join(', ')}` });
     }
-    // No LIVE gate — operator accepts risk
+    // Fail-closed: mode change alone does not arm LIVE trading.
     process.env.OPERATING_MODE = body.mode;
-    if (body.mode === 'LIVE') {
-      process.env.LIVE_TRADING_ENABLED = 'true';
+    if (body.mode !== 'LIVE') {
+      process.env.LIVE_TRADING_ENABLED = 'false';
     }
     return { mode: body.mode, previous: prev, live_enabled: liveEnabled() };
   });

@@ -152,6 +152,8 @@ ExecutionReport ExecutionEngine::reduce(const PositionState& pos, double quantit
     req.price = price > 0.0 ? price : pos.current_price;
     req.stop_loss = 0.0;
     req.take_profit = 0.0;
+    // Idempotent management key — not a new thesis id.
+    req.client_order_id = "vs2-reduce-" + pos.deal_id;
 
     rep.status = ExecutionStatus::Submitted;
     auto resp = gateway_.create_position(req);

@@ -16,6 +16,7 @@ void MarketCorePipeline::configure(const ConfigRegistry& config) {
 void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
     // Caller responsibility: Replay/Paper must use PaperOrderGateway — never Capital LIVE.
     execution_ = std::make_unique<ExecutionEngine>(gateway);
+    broker_healthy_ = gateway.healthy();
 }
 
 void MarketCorePipeline::set_operating_mode(OperatingMode mode) {
@@ -36,6 +37,19 @@ void MarketCorePipeline::set_account_equity(double equity) {
 }
 
 void MarketCorePipeline::clear_account_equity() { account_equity_.reset(); }
+
+bool MarketCorePipeline::broker_healthy() const {
+    if (!execution_) return false;
+    return broker_healthy_;
+}
+
+void MarketCorePipeline::hydrate_open_positions(std::vector<PositionState> recovered) {
+    open_positions_.clear();
+    for (auto& pos : recovered) {
+        if (!(pos.quantity > 0.0) || pos.deal_id.empty()) continue;
+        open_positions_.push_back(std::move(pos));
+    }
+}
 
 namespace {
 const char* health_status_name(HealthStatus s) {
@@ -244,7 +258,7 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
     req.spread = consensus.spread;
     req.spread_cost = consensus.spread;
     req.data_fresh = consensus.valid() || consensus.mid > 0;
-    req.broker_healthy = true;
+    req.broker_healthy = broker_healthy();
     if (account_equity_.has_value()) {
         req.account_equity = *account_equity_;
     } else {
@@ -379,7 +393,7 @@ bool MarketCorePipeline::enter_from_decision(const TradeIntent& intent,
     req.spread = spread;
     req.spread_cost = spread;
     req.data_fresh = mid > 0.0;
-    req.broker_healthy = true;
+    req.broker_healthy = broker_healthy();
     if (account_equity_.has_value()) {
         req.account_equity = *account_equity_;
     } else {

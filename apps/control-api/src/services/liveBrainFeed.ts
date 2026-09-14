@@ -331,7 +331,7 @@ export function getBrainFeedStatus() {
     model_version: latest?.model_version ?? null,
     instrument_count: latest?.instruments.length ?? 0,
     source: latest?.source ?? null,
-    authoritative: true,
+    authoritative: latest !== null && ageMs !== null && ageMs < 30_000,
     invents_decisions: false,
   };
 }

@@ -11,15 +11,21 @@ LiveMultiClockPath::LiveMultiClockPath(
     : pipeline_(pipeline), source_(source), cfg_(std::move(cfg)) {}
 
 bool LiveMultiClockPath::ensure_connected() {
-    if (source_.ensure_session()) return true;
-    ++stats_.session_failures;
-    ++stats_.reconnect_attempts;
-    source_.invalidate_session();
     if (source_.ensure_session()) {
-        ++stats_.reconnect_attempts;
+        pipeline_.set_broker_healthy(true);
         return true;
     }
     ++stats_.session_failures;
+    ++stats_.reconnect_attempts;
+    pipeline_.set_broker_healthy(false);
+    source_.invalidate_session();
+    if (source_.ensure_session()) {
+        ++stats_.reconnect_attempts;
+        pipeline_.set_broker_healthy(true);
+        return true;
+    }
+    ++stats_.session_failures;
+    pipeline_.set_broker_healthy(false);
     return false;
 }
 
@@ -91,7 +97,10 @@ void LiveMultiClockPath::poll_once(Timestamp now) {
     if (now.count() <= 0) now = now_utc_ns();
     const auto steady = now_steady_ns();
 
-    if (!ensure_connected()) return;
+    if (!ensure_connected()) {
+        pipeline_.clear_account_equity();
+        return;
+    }
 
     if (last_quote_poll_.count() == 0 ||
         (steady - last_quote_poll_).count() >=

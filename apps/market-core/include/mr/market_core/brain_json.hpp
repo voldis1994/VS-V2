@@ -37,4 +37,9 @@ int publish_brain_snapshot_to_control_api(const nlohmann::json& body,
                                           const std::string& control_api_url,
                                           const std::string& pipeline_token);
 
+/** POST pipeline heartbeat so Control API can show real market-core liveness. */
+int publish_pipeline_heartbeat_to_control_api(const nlohmann::json& body,
+                                             const std::string& control_api_url,
+                                             const std::string& pipeline_token);
+
 }  // namespace mr
