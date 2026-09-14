@@ -78,7 +78,7 @@ function recordFromInstrument(
         break;
       case 'risk':
         title = inst.risk.approved ? 'RISK APPROVED' : 'RISK VETO';
-        summary = `qty=${inst.risk.approved_quantity} exposure=${inst.risk.exposure}`;
+        summary = `qty=${inst.risk.approved_quantity} exposure=${inst.risk.exposure ?? 'null'}`;
         evidence = { risk: inst.risk };
         break;
       case 'execution':
@@ -102,6 +102,12 @@ function recordFromInstrument(
       related_ids: [...related],
     });
   }
+}
+
+function optNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function normalizeAction(raw: unknown): TradeAction {
@@ -207,9 +213,9 @@ export function normalizeLiveSnapshot(input: unknown): LiveBrainSnapshot {
         approved: Boolean(risk.approved),
         approved_quantity: Number(risk.approved_quantity || 0),
         reason_codes: Array.isArray(risk.reason_codes) ? risk.reason_codes.map(String) : [],
-        exposure: Number(risk.exposure || 0),
-        daily_pnl: Number(risk.daily_pnl || 0),
-        max_drawdown: Number(risk.max_drawdown || 0),
+        exposure: optNum(risk.exposure),
+        daily_pnl: optNum(risk.daily_pnl),
+        max_drawdown: optNum(risk.max_drawdown),
         risk_budget_used: Number(risk.risk_budget_used || 0),
       },
       execution: {
@@ -226,7 +232,7 @@ export function normalizeLiveSnapshot(input: unknown): LiveBrainSnapshot {
         entry_price: Number(position.entry_price || 0),
         current_price: Number(position.current_price || 0),
         unrealized_pnl: Number(position.unrealized_pnl || 0),
-        realized_pnl: Number(position.realized_pnl || 0),
+        realized_pnl: optNum(position.realized_pnl),
         mfe: Number(position.mfe || 0),
         mae: Number(position.mae || 0),
         deal_id: String(position.deal_id || ''),

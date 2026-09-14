@@ -2,6 +2,7 @@
 
 #include "mr/brain/market_brain.hpp"
 #include "mr/common/id.hpp"
+#include "mr/market_core/brain_json.hpp"
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -26,9 +27,10 @@ public:
     /** Load CONTROL_API_URL / PIPELINE_TOKEN / PIPELINE_SERVICE_TOKEN from env. */
     void configure_from_env();
 
-    void observe(const BrainSnapshot& snapshot);
+    void observe(const BrainSnapshot& snapshot, const BrainFeedRuntime& runtime = {});
 
     [[nodiscard]] BrainSnapshot latest() const { return latest_; }
+    [[nodiscard]] BrainFeedRuntime latest_runtime() const { return runtime_; }
     [[nodiscard]] bool has_snapshot() const { return has_; }
     [[nodiscard]] std::uint64_t publish_attempts() const { return publish_attempts_; }
     [[nodiscard]] int last_publish_http() const { return last_publish_http_; }
@@ -37,6 +39,7 @@ private:
     void maybe_publish();
 
     BrainSnapshot latest_{};
+    BrainFeedRuntime runtime_{};
     bool has_{false};
     std::string control_api_url_;
     std::string pipeline_token_;

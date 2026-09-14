@@ -70,9 +70,9 @@ export interface RiskView {
   approved: boolean;
   approved_quantity: number;
   reason_codes: string[];
-  exposure: number;
-  daily_pnl: number;
-  max_drawdown: number;
+  exposure: number | null;
+  daily_pnl: number | null;
+  max_drawdown: number | null;
   risk_budget_used: number;
 }
 
@@ -91,7 +91,7 @@ export interface PositionView {
   entry_price: number;
   current_price: number;
   unrealized_pnl: number;
-  realized_pnl: number;
+  realized_pnl: number | null;
   mfe: number;
   mae: number;
   deal_id: string;

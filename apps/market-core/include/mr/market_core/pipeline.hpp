@@ -1,6 +1,7 @@
 #pragma once
 #include "mr/brain/market_brain.hpp"
 #include "mr/market_core/brain_runtime.hpp"
+#include "mr/market_core/health_monitor.hpp"
 #include "mr/normalization/normalizer.hpp"
 #include "mr/data_quality/quality_engine.hpp"
 #include "mr/feed_fusion/feed_fusion_engine.hpp"
@@ -142,6 +143,7 @@ private:
     FeedFusionEngine fusion_;
     MarketBrain brain_;
     BrainRuntime brain_runtime_;
+    HealthMonitor health_;
     PerceptionEngineFacade perception_;
     StructureEngine structure_;
     MarketConceptsEngine concepts_;

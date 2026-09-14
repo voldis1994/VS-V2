@@ -98,3 +98,10 @@ target_link_libraries(test_stage8_candidate_replay PRIVATE
   GTest::gtest
   GTest::gtest_main)
 add_test(NAME test_stage8_candidate_replay COMMAND test_stage8_candidate_replay)
+
+add_executable(test_brain_feed_json test_brain_feed_json.cpp)
+target_link_libraries(test_brain_feed_json PRIVATE
+  mr::market-core
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_brain_feed_json COMMAND test_brain_feed_json)

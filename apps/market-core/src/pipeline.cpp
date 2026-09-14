@@ -1,4 +1,5 @@
 #include "mr/market_core/pipeline.hpp"
+#include <cmath>
 #include <algorithm>
 
 namespace mr {
@@ -36,8 +37,46 @@ void MarketCorePipeline::set_account_equity(double equity) {
 
 void MarketCorePipeline::clear_account_equity() { account_equity_.reset(); }
 
+namespace {
+const char* health_status_name(HealthStatus s) {
+    switch (s) {
+        case HealthStatus::Healthy: return "HEALTHY";
+        case HealthStatus::Degraded: return "DEGRADED";
+        case HealthStatus::Unhealthy: return "UNHEALTHY";
+        case HealthStatus::Disconnected: return "DISCONNECTED";
+    }
+    return "UNKNOWN";
+}
+}  // namespace
+
 void MarketCorePipeline::publish_brain_feed() {
-    brain_runtime_.observe(brain_.snapshot());
+    BrainFeedRuntime runtime;
+
+    for (const auto& c : health_.snapshot()) {
+        if (c.name == "market_core") runtime.market_core_health = health_status_name(c.status);
+        else if (c.name == "feeds") runtime.feeds_health = health_status_name(c.status);
+        else if (c.name == "execution") runtime.execution_health = health_status_name(c.status);
+        else if (c.name == "data") runtime.data_health = health_status_name(c.status);
+    }
+
+    // Measured open-book exposure (0 when flat is authentic, not a hardcoded placeholder).
+    ExposureState exp{};
+    for (const auto& pos : open_positions_) {
+        if (!(pos.quantity > 0.0)) continue;
+        const double px = pos.current_price > 0.0 ? pos.current_price : pos.entry_price;
+        const double notional = std::abs(pos.quantity * px);
+        exp.gross += notional;
+        exp.net += (pos.direction == Direction::Short ? -notional : notional);
+        ++exp.open_positions;
+    }
+    runtime.exposure = exp.gross;
+    risk_.set_exposure(exp);
+
+    if (auto v = risk_.daily_pnl()) runtime.daily_pnl = *v;
+    if (auto v = risk_.max_drawdown()) runtime.max_drawdown = *v;
+    if (auto v = risk_.realized_pnl()) runtime.realized_pnl = *v;
+
+    brain_runtime_.observe(brain_.snapshot(), runtime);
 }
 
 void MarketCorePipeline::process_event(const MarketEvent& event) {
@@ -51,6 +90,9 @@ void MarketCorePipeline::process_event(const MarketEvent& event) {
     auto norm = normalizer_.normalize(event);
     quality_.process(norm, stale_ms_);
     auto health = quality_.health(norm.source);
+    health_.heartbeat("market_core", HealthStatus::Healthy);
+    health_.heartbeat("feeds", health.status);
+    health_.heartbeat("data", health.status);
     fusion_.ingest(norm, health);
     auto consensus = fusion_.consensus(norm.instrument);
 

@@ -4,6 +4,7 @@ import {
   getBrainFeedStatus,
   getLiveBrainSnapshot,
   ingestLiveBrainSnapshot,
+  normalizeLiveSnapshot,
   listBrainEvents,
   resetLiveBrainFeedForTests,
 } from './liveBrainFeed.js';
@@ -171,5 +172,79 @@ describe('liveBrainFeed', () => {
     const full = getBrainEvent(decision.id);
     expect(full?.evidence).toBeTruthy();
     expect(full?.title).toContain('BUY');
+  });
+});
+
+
+describe('liveBrainFeed unavailable metrics', () => {
+  beforeEach(() => {
+    resetLiveBrainFeedForTests();
+  });
+
+  it('preserves null risk/pnl and UNKNOWN health instead of inventing 0/ONLINE', () => {
+    const snap = normalizeLiveSnapshot({
+      source: 'market-core',
+      brain_version: 'vs-v2-1.0.0',
+      model_id: 'stage9',
+      model_version: '9.0.1',
+      snapshot_id: 99,
+      ts_ns: 1,
+      operating_mode: 'UNKNOWN',
+      health: {
+        market_core: 'UNKNOWN',
+        feeds: 'UNKNOWN',
+        execution: 'UNKNOWN',
+        data: 'UNKNOWN',
+      },
+      instruments: [
+        {
+          instrument_id: 1,
+          decision_action: 'WAIT',
+          risk: {
+            approved: false,
+            approved_quantity: 0,
+            reason_codes: [],
+            exposure: null,
+            daily_pnl: null,
+            max_drawdown: null,
+            risk_budget_used: 0,
+          },
+          position: {
+            instrument_id: 1,
+            direction: 'FLAT',
+            quantity: 0,
+            entry_price: 0,
+            current_price: 0,
+            unrealized_pnl: 0,
+            realized_pnl: null,
+            mfe: 0,
+            mae: 0,
+            deal_id: '',
+            position_action: 'HOLD',
+          },
+        },
+      ],
+    });
+
+    expect(snap.health.market_core).toBe('UNKNOWN');
+    expect(snap.health.feeds).toBe('UNKNOWN');
+    expect(snap.instruments[0].risk.exposure).toBeNull();
+    expect(snap.instruments[0].risk.daily_pnl).toBeNull();
+    expect(snap.instruments[0].risk.max_drawdown).toBeNull();
+    expect(snap.instruments[0].position.realized_pnl).toBeNull();
+    expect(snap.health.market_core).not.toBe('ONLINE');
+  });
+
+  it('does not coerce missing exposure/pnl keys to 0', () => {
+    const snap = normalizeLiveSnapshot({
+      source: 'market-core',
+      snapshot_id: 1,
+      ts_ns: 1,
+      instruments: [{ instrument_id: 1, risk: { approved: true }, position: {} }],
+    });
+    expect(snap.instruments[0].risk.exposure).toBeNull();
+    expect(snap.instruments[0].risk.daily_pnl).toBeNull();
+    expect(snap.instruments[0].risk.max_drawdown).toBeNull();
+    expect(snap.instruments[0].position.realized_pnl).toBeNull();
   });
 });

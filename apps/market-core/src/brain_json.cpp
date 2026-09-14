@@ -73,6 +73,15 @@ const char* pos_action_str(PositionAction a) {
     }
 }
 
+
+nlohmann::json opt_num(const std::optional<double>& v) {
+    return v.has_value() ? nlohmann::json(*v) : nlohmann::json(nullptr);
+}
+
+std::string health_or_unknown(const std::string& s) {
+    return s.empty() ? std::string{"UNKNOWN"} : s;
+}
+
 nlohmann::json side_to_json(const SidePrediction& s) {
     return {
         {"direction", dir_str(s.direction)},
@@ -89,7 +98,8 @@ nlohmann::json side_to_json(const SidePrediction& s) {
     };
 }
 
-nlohmann::json instrument_to_json(InstrumentId id, const BrainContext& ctx) {
+nlohmann::json instrument_to_json(InstrumentId id, const BrainContext& ctx,
+                                  const BrainFeedRuntime& runtime) {
     const double mid = ctx.consensus.mid;
     const double spread = ctx.consensus.spread;
     const double half = spread > 0.0 ? spread * 0.5 : 0.0;
@@ -149,9 +159,9 @@ nlohmann::json instrument_to_json(InstrumentId id, const BrainContext& ctx) {
          {{"approved", ctx.risk.approved},
           {"approved_quantity", ctx.risk.approved_quantity},
           {"reason_codes", ctx.risk.reason_codes},
-          {"exposure", 0.0},
-          {"daily_pnl", 0.0},
-          {"max_drawdown", 0.0},
+          {"exposure", opt_num(runtime.exposure)},
+          {"daily_pnl", opt_num(runtime.daily_pnl)},
+          {"max_drawdown", opt_num(runtime.max_drawdown)},
           {"risk_budget_used", ctx.risk.size_fraction}}},
         {"execution",
          {{"status", exec_status_str(ctx.execution.status)},
@@ -166,7 +176,7 @@ nlohmann::json instrument_to_json(InstrumentId id, const BrainContext& ctx) {
           {"entry_price", ctx.position.entry_price},
           {"current_price", ctx.position.current_price},
           {"unrealized_pnl", ctx.position.current_pnl},
-          {"realized_pnl", 0.0},
+          {"realized_pnl", opt_num(runtime.realized_pnl)},
           {"mfe", ctx.position.mfe},
           {"mae", ctx.position.mae},
           {"deal_id", ctx.position.deal_id},
@@ -189,11 +199,13 @@ size_t sink(char*, size_t size, size_t nmemb, void*) { return size * nmemb; }
 nlohmann::json brain_snapshot_to_json(const BrainSnapshot& snap,
                                       const std::string& model_id,
                                       const std::string& model_version,
-                                      const std::string& operating_mode) {
+                                      const std::string& operating_mode,
+                                      const BrainFeedRuntime& runtime) {
     nlohmann::json instruments = nlohmann::json::array();
     for (const auto& [id, ctx] : snap.instruments) {
-        instruments.push_back(instrument_to_json(id, ctx));
+        instruments.push_back(instrument_to_json(id, ctx, runtime));
     }
+    const std::string mode = operating_mode.empty() ? "UNKNOWN" : operating_mode;
     return {
         {"source", "market-core"},
         {"brain_version", kBrainVersion},
@@ -201,12 +213,12 @@ nlohmann::json brain_snapshot_to_json(const BrainSnapshot& snap,
         {"model_version", model_version},
         {"snapshot_id", static_cast<std::uint64_t>(snap.id)},
         {"ts_ns", snap.ts.count()},
-        {"operating_mode", operating_mode},
+        {"operating_mode", mode},
         {"health",
-         {{"market_core", "ONLINE"},
-          {"feeds", "ONLINE"},
-          {"execution", "ONLINE"},
-          {"data", "ONLINE"}}},
+         {{"market_core", health_or_unknown(runtime.market_core_health)},
+          {"feeds", health_or_unknown(runtime.feeds_health)},
+          {"execution", health_or_unknown(runtime.execution_health)},
+          {"data", health_or_unknown(runtime.data_health)}}},
         {"instruments", std::move(instruments)},
     };
 }

@@ -33,8 +33,9 @@ void BrainRuntime::configure_from_env() {
     }
 }
 
-void BrainRuntime::observe(const BrainSnapshot& snapshot) {
+void BrainRuntime::observe(const BrainSnapshot& snapshot, const BrainFeedRuntime& runtime) {
     latest_ = snapshot;
+    runtime_ = runtime;
     has_ = true;
     maybe_publish();
 }
@@ -50,7 +51,7 @@ void BrainRuntime::maybe_publish() {
     }
 
     const auto body =
-        brain_snapshot_to_json(latest_, model_id_, model_version_, mode_str(mode_));
+        brain_snapshot_to_json(latest_, model_id_, model_version_, mode_str(mode_), runtime_);
     last_publish_http_ =
         publish_brain_snapshot_to_control_api(body, control_api_url_, pipeline_token_);
     last_publish_ = now;

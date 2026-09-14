@@ -8,8 +8,8 @@ import type {
   TradeAction,
 } from '../../types/liveBrain';
 
-function fmt(n: number, d = 4): string {
-  if (!Number.isFinite(n)) return '—';
+function fmt(n: number | null | undefined, d = 4): string {
+  if (n == null || !Number.isFinite(n)) return '—';
   return n.toFixed(d);
 }
 
@@ -172,6 +172,7 @@ function InstrumentPanel({ inst }: { inst: InstrumentBrainView }) {
             value={fmt(inst.position.unrealized_pnl, 2)}
             tone={inst.position.unrealized_pnl >= 0 ? 'ok' : 'danger'}
           />
+          <Metric label="rPnL" value={fmt(inst.position.realized_pnl, 2)} />
           <Metric
             label="MFE/MAE"
             value={`${fmt(inst.position.mfe, 2)} / ${fmt(inst.position.mae, 2)}`}
@@ -191,6 +192,8 @@ function InstrumentPanel({ inst }: { inst: InstrumentBrainView }) {
           <Metric label="QTY" value={fmt(inst.risk.approved_quantity, 2)} />
           <Metric label="BUDGET" value={fmt(inst.risk.risk_budget_used, 3)} />
           <Metric label="EXPOSURE" value={fmt(inst.risk.exposure, 2)} />
+          <Metric label="DAILY PnL" value={fmt(inst.risk.daily_pnl, 2)} />
+          <Metric label="DRAWDOWN" value={fmt(inst.risk.max_drawdown, 2)} />
           <Metric label="EXEC" value={inst.execution.status} />
           <Metric label="FILL" value={fmt(inst.execution.fill_price, 5)} />
           <Metric label="FILLED QTY" value={fmt(inst.execution.filled_quantity, 2)} />

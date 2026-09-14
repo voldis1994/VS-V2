@@ -106,6 +106,7 @@ GuardResult RiskEngine::pre_trade_check(const RiskRequest& request) const {
 GuardResult RiskEngine::monitor_position(const PositionState& pos, double daily_pnl) {
     (void)pos;
     daily_pnl_ = daily_pnl;
+    has_daily_pnl_ = true;
     GuardResult g;
     if (emergency_stop_) { g.pass = false; g.reason = "EMERGENCY_STOP"; }
     return g;
