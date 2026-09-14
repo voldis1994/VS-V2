@@ -6,4 +6,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tools/validate.py
+      - name: Validate promotion gate
+        run: PYTHONPATH=. python3 tools/validate.py
