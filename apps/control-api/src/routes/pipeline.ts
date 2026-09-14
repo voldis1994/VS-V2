@@ -8,6 +8,10 @@ import {
   notePipelineBridgeError,
   notePipelineHeartbeat,
 } from '../services/pipelineBridge.js';
+import {
+  ingestLiveBrainSnapshot,
+  recordBrainError,
+} from '../services/liveBrainFeed.js';
 
 function requirePipelineAuth(
   request: { headers: Record<string, unknown> },
@@ -58,6 +62,27 @@ export async function registerPipelineRoutes(app: FastifyInstance): Promise<void
   app.get('/api/pipeline/bridge-status', async (request, reply) => {
     if (!requirePipelineAuth(request, reply)) return;
     return getPipelineBridgeStatus();
+  });
+
+  /**
+   * Authoritative C++ Brain snapshot ingest (market-core only).
+   * Control API stores + WS-broadcasts; never invents decisions here.
+   */
+  app.post('/api/pipeline/brain-snapshot', async (request, reply) => {
+    if (!requirePipelineAuth(request, reply)) return;
+    try {
+      const snapshot = ingestLiveBrainSnapshot(request.body);
+      return {
+        success: true,
+        snapshot_id: snapshot.snapshot_id,
+        instruments: snapshot.instruments.length,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      recordBrainError(message, { body: request.body });
+      reply.code(400);
+      return { success: false, error: message };
+    }
   });
 
   app.post('/api/pipeline/intents', async (request, reply) => {

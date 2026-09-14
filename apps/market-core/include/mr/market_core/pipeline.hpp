@@ -1,5 +1,6 @@
 #pragma once
 #include "mr/brain/market_brain.hpp"
+#include "mr/market_core/brain_runtime.hpp"
 #include "mr/normalization/normalizer.hpp"
 #include "mr/data_quality/quality_engine.hpp"
 #include "mr/feed_fusion/feed_fusion_engine.hpp"
@@ -87,6 +88,11 @@ public:
     [[nodiscard]] PredictionEngine& prediction_engine() { return prediction_; }
     [[nodiscard]] DecisionEngine& decision_engine() { return decision_; }
     [[nodiscard]] RiskEngine& risk_engine() { return risk_; }
+    [[nodiscard]] BrainRuntime& brain_runtime() { return brain_runtime_; }
+    [[nodiscard]] const BrainRuntime& brain_runtime() const { return brain_runtime_; }
+
+    /** Push latest BrainSnapshot to Control API (throttled; no invented decisions). */
+    void publish_brain_feed();
 
     /**
      * Continue after DecisionEngine produced EntryReady.
@@ -135,6 +141,7 @@ private:
     QualityEngine quality_;
     FeedFusionEngine fusion_;
     MarketBrain brain_;
+    BrainRuntime brain_runtime_;
     PerceptionEngineFacade perception_;
     StructureEngine structure_;
     MarketConceptsEngine concepts_;

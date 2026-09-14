@@ -1,15 +1,22 @@
-
-import { listRegimeSnapshots } from './regimes.js';
+/**
+ * Legacy brainService — DO NOT invent trading scores from regimes.
+ * Prefer liveBrainFeed (authoritative market-core snapshots).
+ */
+import { getLiveBrainSnapshot } from './liveBrainFeed.js';
 
 export async function listBrainSnapshots() {
-  return listRegimeSnapshots().map((row, i) => ({
-    instrument_id: i + 1,
-    epic: row.epic,
-    bias: row.current.includes('UP') ? 'BULLISH' : row.current.includes('DOWN') ? 'BEARISH' : 'NEUTRAL',
-    structure: row.confidence * 0.6,
-    momentum: row.confidence * 0.4,
-    pressure: 0,
-    composite: row.confidence,
-    bar_count: row.bar_count,
+  const live = getLiveBrainSnapshot();
+  if (!live) return [];
+  return live.instruments.map((inst) => ({
+    instrument_id: inst.instrument_id,
+    epic: inst.epic,
+    symbol: inst.symbol,
+    decision_action: inst.decision_action,
+    expected_value: inst.decision.expected_value,
+    probability: inst.decision.probability,
+    mid: inst.quote.mid,
+    has_structure_authority: inst.has_structure_authority,
+    has_micro_authority: inst.has_micro_authority,
+    source: 'market-core',
   }));
 }

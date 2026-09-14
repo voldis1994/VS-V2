@@ -10,7 +10,8 @@ import {
 } from './DeskContext';
 
 const NAV = [
-  { to: '/', label: 'OVERVIEW', end: true },
+  { to: '/', label: 'LIVE', end: true },
+  { to: '/overview', label: 'OVERVIEW' },
   { to: '/markets', label: 'MARKETS' },
   { to: '/brain', label: 'BRAIN' },
   { to: '/structure', label: 'STRUCTURE' },

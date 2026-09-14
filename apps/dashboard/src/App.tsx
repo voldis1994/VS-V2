@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { useWebSocket } from './hooks/useWebSocket';
 
 import { OverviewPage } from './pages/Overview';
+import { LiveTerminalPage } from './pages/LiveTerminal';
 import { MarketsPage } from './pages/Markets';
 import { BrainPage } from './pages/Brain';
 import { StructurePage } from './pages/Structure';
@@ -42,7 +43,8 @@ export default function App() {
       <Route path="/robot" element={<RobotDeskPage />} />
       <Route path="/client" element={<ClientPanelPage />} />
 
-      <Route path="/" element={<Desk><OverviewPage /></Desk>} />
+      <Route path="/" element={<LiveTerminalPage />} />
+      <Route path="/overview" element={<Desk><OverviewPage /></Desk>} />
       <Route path="/markets" element={<Desk><MarketsPage /></Desk>} />
       <Route path="/brain" element={<Desk><BrainPage /></Desk>} />
       <Route path="/structure" element={<Desk><StructurePage /></Desk>} />

@@ -9,6 +9,7 @@ void MarketCorePipeline::configure(const ConfigRegistry& config) {
     if (!config.feeds().empty()) {
         stale_ms_ = config.feeds().front().stale_threshold_ms;
     }
+    brain_runtime_.configure_from_env();
 }
 
 void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
@@ -18,6 +19,7 @@ void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
 
 void MarketCorePipeline::set_operating_mode(OperatingMode mode) {
     mode_ = mode;
+    brain_runtime_.set_operating_mode(mode);
     if (mode_ == OperatingMode::Replay) {
         execution_.reset();
     }
@@ -33,6 +35,10 @@ void MarketCorePipeline::set_account_equity(double equity) {
 }
 
 void MarketCorePipeline::clear_account_equity() { account_equity_.reset(); }
+
+void MarketCorePipeline::publish_brain_feed() {
+    brain_runtime_.observe(brain_.snapshot());
+}
 
 void MarketCorePipeline::process_event(const MarketEvent& event) {
     telemetry_.record_event();
@@ -84,6 +90,8 @@ void MarketCorePipeline::process_closed_10s(const Candle& closed, Timestamp ts) 
     const InstrumentId instrument =
         closed.instrument != kInvalidInstrument ? closed.instrument : 1;
     brain_.apply_micro_evidence(instrument, micro_.snapshot(), at);
+
+    publish_brain_feed();
 }
 
 void MarketCorePipeline::process_authority_ohlc(const Candle& closed, Timeframe tf) {
@@ -216,6 +224,8 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
         pending_.push_back(intent);
     }
     telemetry_.record_decision();
+
+    publish_brain_feed();
 }
 
 void MarketCorePipeline::execute_entry(const TradeIntent& intent,

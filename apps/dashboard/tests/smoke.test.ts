@@ -14,3 +14,14 @@ describe('VS-V2 dashboard stores', () => {
     expect(state).toBeTruthy();
   });
 });
+
+import { useLiveBrainStore } from '../src/state/liveBrainStore';
+
+describe('live brain terminal store', () => {
+  it('exposes live brain store API', () => {
+    const state = useLiveBrainStore.getState();
+    expect(typeof state.fetchLive).toBe('function');
+    expect(typeof state.applySnapshot).toBe('function');
+    expect(state.status?.invents_decisions ?? false).toBe(false);
+  });
+});

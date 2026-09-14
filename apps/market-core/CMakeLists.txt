@@ -2,6 +2,7 @@ add_library(mr_market_core STATIC
     src/pipeline.cpp
     src/runtime.cpp
     src/brain_runtime.cpp
+    src/brain_json.cpp
     src/event_dispatcher.cpp
     src/subscription_manager.cpp
     src/intent_dispatcher.cpp
@@ -36,6 +37,7 @@ target_link_libraries(mr_market_core PUBLIC
     mr::replay
     mr::common
     nlohmann_json::nlohmann_json
+    CURL::libcurl
 )
 target_compile_features(mr_market_core PUBLIC cxx_std_20)
 
