@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS brain_snapshots (id BIGSERIAL PRIMARY KEY, instrument_id INT, bias TEXT, structure DOUBLE PRECISION, momentum DOUBLE PRECISION, pressure DOUBLE PRECISION, composite DOUBLE PRECISION, captured_at TIMESTAMPTZ DEFAULT NOW());

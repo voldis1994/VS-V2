@@ -1,0 +1,9 @@
+
+name: Replay
+on: workflow_dispatch
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo 'Replay job — run market-core --mode REPLAY when build artifacts exist'

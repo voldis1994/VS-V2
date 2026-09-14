@@ -1,0 +1,5 @@
+add_library(mr_market_concepts STATIC src/regime_similarity.cpp src/market_concepts_engine.cpp)
+add_library(mr::market-concepts ALIAS mr_market_concepts)
+target_include_directories(mr_market_concepts PUBLIC include)
+target_link_libraries(mr_market_concepts PUBLIC mr::perception-engine mr::structure-engine)
+target_compile_features(mr_market_concepts PUBLIC cxx_std_20)

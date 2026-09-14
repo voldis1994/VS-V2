@@ -1,0 +1,9 @@
+
+name: Validation
+on: [push, pull_request]
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/validate.py

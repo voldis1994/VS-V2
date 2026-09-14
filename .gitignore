@@ -1,0 +1,64 @@
+# Build
+build/
+out/
+cmake-build-*/
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# vcpkg
+vcpkg_installed/
+
+# Node
+node_modules/
+dist/
+dist-client/
+*.tsbuildinfo
+.npm
+
+# Environment
+.env
+!.env.example
+
+# Data
+data/raw/**
+data/normalized/**
+data/replay/**
+data/exports/**
+data/candles/**
+data/brain-state/**
+data/features/**
+data/patterns/**
+data/predictions/**
+data/decisions/**
+data/episodes/**
+data/outcomes/**
+data/trades/**
+data/datasets/**
+!data/**/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+test-results/
+benchmark-results/
+!benchmark-results/.gitkeep
+coverage/
+
+# Secrets
+*.pem
+*.key
+credentials.json

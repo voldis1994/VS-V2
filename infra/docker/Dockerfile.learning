@@ -1,0 +1,5 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements/requirements-learning.txt ai ./
+RUN pip install -r requirements-learning.txt
+CMD ["python3", "tools/train.py"]

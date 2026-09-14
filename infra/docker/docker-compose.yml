@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vs-v2-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-market_reader}
+      POSTGRES_USER: ${DB_USER:-market_reader}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-CHANGE_ME}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-market_reader} -d ${DB_NAME:-market_reader}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vs-v2-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  control-api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.control-api
+    ports:
+      - "${CONTROL_API_PORT:-3000}:3000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-market_reader}
+      DB_USER: ${DB_USER:-market_reader}
+      DB_PASSWORD: ${DB_PASSWORD:-CHANGE_ME}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.dashboard
+    ports:
+      - "5173:80"
+    depends_on:
+      - control-api
+
+  market-core:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.market-core
+    environment:
+      CONTROL_API_URL: http://control-api:3000
+      PIPELINE_TOKEN: ${PIPELINE_TOKEN:-CHANGE_ME_PIPELINE_TOKEN}
+    depends_on:
+      - control-api
+
+  learning:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.learning
+    volumes:
+      - ../../data:/app/data
+      - ../../models:/app/models
+
+volumes:
+  postgres_data:
+  redis_data:

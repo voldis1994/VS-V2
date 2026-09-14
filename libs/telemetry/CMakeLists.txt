@@ -1,0 +1,5 @@
+add_library(mr_telemetry STATIC src/telemetry_hub.cpp)
+add_library(mr::telemetry ALIAS mr_telemetry)
+target_include_directories(mr_telemetry PUBLIC include)
+target_link_libraries(mr_telemetry PUBLIC mr::common nlohmann_json::nlohmann_json)
+target_compile_features(mr_telemetry PUBLIC cxx_std_20)

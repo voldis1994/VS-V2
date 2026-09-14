@@ -1,0 +1,8 @@
+{
+  "weights": {
+    "structure": 0.25,
+    "momentum": 0.35,
+    "pressure": 0.25,
+    "behavior": 0.15
+  }
+}

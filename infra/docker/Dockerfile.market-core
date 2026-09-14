@@ -1,0 +1,6 @@
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y cmake g++ libcurl4-openssl-dev libfmt-dev libspdlog-dev nlohmann-json3-dev
+WORKDIR /app
+COPY . .
+RUN cmake -B build && cmake --build build -j
+CMD ["./build/apps/market-core/market-core"]

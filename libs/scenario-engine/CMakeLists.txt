@@ -1,0 +1,5 @@
+add_library(mr_scenario_engine STATIC src/scenario_engine.cpp)
+add_library(mr::scenario-engine ALIAS mr_scenario_engine)
+target_include_directories(mr_scenario_engine PUBLIC include)
+target_link_libraries(mr_scenario_engine PUBLIC mr::structure-engine mr::market-concepts mr::microstructure-engine)
+target_compile_features(mr_scenario_engine PUBLIC cxx_std_20)

@@ -1,0 +1,5 @@
+add_library(mr_cross_market_engine STATIC src/cross_market_engine.cpp)
+add_library(mr::cross-market-engine ALIAS mr_cross_market_engine)
+target_include_directories(mr_cross_market_engine PUBLIC include)
+target_link_libraries(mr_cross_market_engine PUBLIC mr::feed-fusion)
+target_compile_features(mr_cross_market_engine PUBLIC cxx_std_20)

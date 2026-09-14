@@ -1,0 +1,4 @@
+{
+  "stale_threshold_ms": 500,
+  "max_spread_bps": 25
+}

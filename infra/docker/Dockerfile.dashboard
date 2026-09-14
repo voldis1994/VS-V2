@@ -1,0 +1,6 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY apps/dashboard ./apps/dashboard
+RUN cd apps/dashboard && npm install && npm run build
+FROM nginx:alpine
+COPY --from=build /app/apps/dashboard/dist /usr/share/nginx/html

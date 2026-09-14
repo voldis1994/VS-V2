@@ -1,0 +1,5 @@
+add_library(mr_memory_engine STATIC src/memory_engine.cpp)
+add_library(mr::memory-engine ALIAS mr_memory_engine)
+target_include_directories(mr_memory_engine PUBLIC include)
+target_link_libraries(mr_memory_engine PUBLIC mr::perception-engine)
+target_compile_features(mr_memory_engine PUBLIC cxx_std_20)

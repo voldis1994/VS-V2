@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS predictions (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), instrument_id INT, horizon TEXT, probability DOUBLE PRECISION, edge DOUBLE PRECISION, created_at TIMESTAMPTZ DEFAULT NOW());

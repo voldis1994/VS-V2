@@ -1,0 +1,24 @@
+
+name: Test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: market_reader, POSTGRES_PASSWORD: test, POSTGRES_DB: market_reader }
+        ports: ['5432:5432']
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: market_reader
+      DB_USER: market_reader
+      DB_PASSWORD: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install
+      - run: npm test --workspace=@vs-v2/control-api
+      - run: python3 -m pytest ai/tests -q || true

@@ -1,0 +1,5 @@
+add_library(mr_market_types INTERFACE)
+add_library(mr::market-types ALIAS mr_market_types)
+target_include_directories(mr_market_types INTERFACE include)
+target_link_libraries(mr_market_types INTERFACE mr::common)
+target_compile_features(mr_market_types INTERFACE cxx_std_20)

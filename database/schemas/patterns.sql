@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS patterns (id BIGSERIAL PRIMARY KEY, instrument_id INT, name TEXT, confidence DOUBLE PRECISION, detected_at TIMESTAMPTZ DEFAULT NOW());

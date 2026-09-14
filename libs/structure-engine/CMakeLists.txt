@@ -1,0 +1,5 @@
+add_library(mr_structure_engine STATIC src/structure_engine.cpp)
+add_library(mr::structure-engine ALIAS mr_structure_engine)
+target_include_directories(mr_structure_engine PUBLIC include)
+target_link_libraries(mr_structure_engine PUBLIC mr::perception-engine mr::candle-engine)
+target_compile_features(mr_structure_engine PUBLIC cxx_std_20)

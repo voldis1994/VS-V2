@@ -1,0 +1,14 @@
+{
+  "instruments": [
+    {
+      "id": 1,
+      "symbol": "XAUUSD",
+      "epic": "GOLD"
+    },
+    {
+      "id": 2,
+      "symbol": "EURUSD",
+      "epic": "EURUSD"
+    }
+  ]
+}

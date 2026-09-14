@@ -1,0 +1,9 @@
+{
+  "pairs": [
+    {
+      "lead": "DXY",
+      "follow": "XAUUSD",
+      "sign": -1
+    }
+  ]
+}

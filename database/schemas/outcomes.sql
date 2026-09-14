@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS outcomes (id BIGSERIAL PRIMARY KEY, decision_id BIGINT, realized_pnl DOUBLE PRECISION, label TEXT, recorded_at TIMESTAMPTZ DEFAULT NOW());

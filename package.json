@@ -1,0 +1,14 @@
+{
+  "name": "vs-v2",
+  "version": "2.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/control-api",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspace=@vs-v2/control-api & npm run dev --workspace=@vs-v2/dashboard",
+    "test": "npm test --workspaces"
+  }
+}

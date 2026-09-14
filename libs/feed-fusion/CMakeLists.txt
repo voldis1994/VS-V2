@@ -1,0 +1,5 @@
+add_library(mr_feed_fusion STATIC src/feed_fusion_engine.cpp)
+add_library(mr::feed-fusion ALIAS mr_feed_fusion)
+target_include_directories(mr_feed_fusion PUBLIC include)
+target_link_libraries(mr_feed_fusion PUBLIC mr::common mr::market-types mr::data-quality)
+target_compile_features(mr_feed_fusion PUBLIC cxx_std_20)

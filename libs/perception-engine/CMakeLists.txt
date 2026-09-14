@@ -1,0 +1,5 @@
+add_library(mr_perception_engine STATIC src/price_dynamics.cpp src/perception_engine.cpp)
+add_library(mr::perception-engine ALIAS mr_perception_engine)
+target_include_directories(mr_perception_engine PUBLIC include)
+target_link_libraries(mr_perception_engine PUBLIC mr::common mr::market-types)
+target_compile_features(mr_perception_engine PUBLIC cxx_std_20)
