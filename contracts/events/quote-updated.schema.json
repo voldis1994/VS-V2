@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RawQuoteUpdated",
+  "type": "object",
+  "required": ["kind", "instrument", "bid", "ask", "ts"],
+  "properties": {
+    "kind": { "const": "RawQuote" },
+    "instrument": { "type": "integer" },
+    "bid": { "type": "number" },
+    "ask": { "type": "number" },
+    "ts": { "type": "integer" }
+  }
+}

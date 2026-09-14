@@ -3,7 +3,11 @@
 #include "mr/common/id.hpp"
 #include <optional>
 namespace mr {
-enum class MarketEventType : std::uint8_t { Unknown=0, Quote=1, Trade=2, BookUpdate=3, Heartbeat=4, SessionStatus=5 };
+enum class MarketEventType : std::uint8_t {
+    Unknown=0, Quote=1, Trade=2, BookUpdate=3, Heartbeat=4, SessionStatus=5,
+    /** Transport may carry candle payloads; prefer MarketClockEvent for semantics. */
+    FormingCandle=6, ClosedTenSecond=7, ClosedOneMinute=8, ClosedHigherTimeframe=9
+};
 struct MarketEvent {
     InstrumentId instrument{kInvalidInstrument};
     SourceId source{kInvalidSource};

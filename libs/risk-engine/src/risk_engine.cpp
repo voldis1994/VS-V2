@@ -1,13 +1,27 @@
 #include "mr/risk/risk_engine.hpp"
+
 namespace mr {
 
 SizingResult RiskEngine::size_position(const TradeIntent& intent, double balance, double price) {
     SizingResult r;
-    if (emergency_stop || limits_.emergency_stop) { r.reason = "EMERGENCY_STOP"; return r; }
-    if (intent.decision != EntryDecision::EntryReady) { r.reason = "NOT_READY"; return r; }
-    double risk_per_unit = std::abs(price - intent.stop_loss);
-    if (risk_per_unit <= 0) { r.reason = "INVALID_STOP"; return r; }
-    double risk_budget = balance * (limits_.max_drawdown_pct / 100.0);
+    if (emergency_stop || limits_.emergency_stop) {
+        r.reason = "EMERGENCY_STOP";
+        return r;
+    }
+    if (!(balance > 0.0)) {
+        r.reason = "MISSING_ACCOUNT_EQUITY";
+        return r;
+    }
+    if (intent.decision != EntryDecision::EntryReady) {
+        r.reason = "NOT_READY";
+        return r;
+    }
+    const double risk_per_unit = std::abs(price - intent.stop_loss);
+    if (risk_per_unit <= 0) {
+        r.reason = "INVALID_STOP";
+        return r;
+    }
+    const double risk_budget = balance * (limits_.max_drawdown_pct / 100.0);
     r.quantity = std::min(limits_.max_position_size, risk_budget / risk_per_unit);
     r.approved = r.quantity > 0;
     return r;
@@ -15,9 +29,21 @@ SizingResult RiskEngine::size_position(const TradeIntent& intent, double balance
 
 GuardResult RiskEngine::pre_trade_check(const TradeIntent& intent, double spread_cost) {
     GuardResult g;
-    if (emergency_stop || limits_.emergency_stop) { g.pass = false; g.reason = "EMERGENCY_STOP"; return g; }
-    if (daily_pnl_ <= -limits_.max_daily_loss) { g.pass = false; g.reason = "DAILY_LOSS"; return g; }
-    if (intent.expected_value <= spread_cost) { g.pass = false; g.reason = "NEGATIVE_EV"; return g; }
+    if (emergency_stop || limits_.emergency_stop) {
+        g.pass = false;
+        g.reason = "EMERGENCY_STOP";
+        return g;
+    }
+    if (daily_pnl_ <= -limits_.max_daily_loss) {
+        g.pass = false;
+        g.reason = "DAILY_LOSS";
+        return g;
+    }
+    if (intent.expected_value <= spread_cost) {
+        g.pass = false;
+        g.reason = "NEGATIVE_EV";
+        return g;
+    }
     return g;
 }
 
@@ -41,9 +67,22 @@ RiskDecision RiskEngine::evaluate(const RiskRequest& request) {
     out.confidence = request.intent.probability;
     out.type = RiskIntentType::Entry;
 
+    // Fail-closed: never invent equity / account defaults.
+    if (!(request.account_equity > 0.0)) {
+        out.approved = false;
+        out.reason_codes.push_back("MISSING_ACCOUNT_EQUITY");
+        out.human_explanation = "MISSING_ACCOUNT_EQUITY";
+        return out;
+    }
+    if (!(out.reference_price > 0.0)) {
+        out.approved = false;
+        out.reason_codes.push_back("MISSING_REFERENCE_PRICE");
+        out.human_explanation = "MISSING_REFERENCE_PRICE";
+        return out;
+    }
+
     auto guard = pre_trade_check(request.intent, 0.0);
-    const double equity = request.account_equity > 0 ? request.account_equity : 10000.0;
-    auto size = size_position(request.intent, equity, out.reference_price);
+    auto size = size_position(request.intent, request.account_equity, out.reference_price);
     out.size_fraction = size.quantity;
     out.max_risk_fraction = request.account_risk_budget;
     out.approved = guard.pass && size.approved;
@@ -56,4 +95,4 @@ RiskDecision RiskEngine::evaluate(const RiskRequest& request) {
     return out;
 }
 
-}
+}  // namespace mr

@@ -2,6 +2,16 @@
 
 VS-V2 is a multi-service trading platform: C++ **market-core** runs the live pipeline, **control-api** coordinates brokers/clients/execution, **dashboard** is the operator desk, and **ai/** handles learning and validation.
 
+## Clock domains
+
+`RAW QUOTE` ≠ `FORMING CANDLE` ≠ `CLOSED 10s` ≠ `CLOSED 1m+`.
+
+- Quotes update perception/forming only — **never** structure.
+- Closed 10s is a **one-shot** event (`structure_authority=false`).
+- **Capital closed 1m+ OHLC** is the sole structure/context authority (`process_authority_ohlc`).
+- Decision always scores **LONG, SHORT, WAIT**.
+- Risk is **fail-closed** without real account equity (no fake defaults).
+
 ## Architecture
 
 ```

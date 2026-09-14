@@ -1,6 +1,7 @@
 #include "mr/capital/capital_client.hpp"
 #include "mr/common/clock.hpp"
 #include <algorithm>
+#include <sstream>
 
 namespace mr {
 
@@ -147,6 +148,43 @@ std::optional<CapitalQuote> CapitalClient::quote(InstrumentId instrument) {
     q.ts = now_utc_ns();
     q.valid = q.bid > 0 && q.ask > 0;
     return q;
+}
+
+CapitalPriceHistory CapitalClient::prices(const std::string& epic, Timeframe tf, int max_bars) {
+    CapitalPriceHistory out;
+    if (!connected_ || epic.empty()) return out;
+    if (static_cast<std::uint32_t>(tf) < static_cast<std::uint32_t>(Timeframe::Minute1)) {
+        return out;  // Authority API is Minute1+ only
+    }
+    std::ostringstream path;
+    path << "/api/v1/prices/" << epic
+         << "?resolution=" << capital_resolution(tf)
+         << "&max=" << max_bars;
+    auto json = http_request("GET", path.str());
+    if (json.empty() || !json.contains("prices")) return out;
+    for (const auto& p : json["prices"]) {
+        CapitalPriceBar bar;
+        // Capital returns snapshot OHLC under nested objects; accept flat or nested.
+        if (p.contains("openPrice")) {
+            bar.open = p["openPrice"].value("bid", p["openPrice"].value("ask", 0.0));
+            bar.high = p["highPrice"].value("bid", p["highPrice"].value("ask", 0.0));
+            bar.low = p["lowPrice"].value("bid", p["lowPrice"].value("ask", 0.0));
+            bar.close = p["closePrice"].value("bid", p["closePrice"].value("ask", 0.0));
+        } else {
+            bar.open = p.value("open", 0.0);
+            bar.high = p.value("high", 0.0);
+            bar.low = p.value("low", 0.0);
+            bar.close = p.value("close", 0.0);
+        }
+        if (p.contains("snapshotTimeUTC")) {
+            // Keep timestamp as opaque monotonic placeholder if parse unavailable.
+            bar.time = now_utc_ns();
+        } else if (p.contains("time")) {
+            bar.time = Timestamp(static_cast<long long>(p.value("time", 0LL)));
+        }
+        if (bar.close > 0) out.push_back(bar);
+    }
+    return out;
 }
 
 CapitalOrderResponse CapitalClient::create_position(const CapitalOrderRequest& request) {

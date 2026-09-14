@@ -4,6 +4,7 @@ namespace mr {
 struct RiskRequest {
     TradeIntent intent{};
     double mid_price{0};
+    /** Required (>0). Missing equity => fail-closed reject. No fake defaults. */
     double account_equity{0};
     double account_risk_budget{0.01};
 };

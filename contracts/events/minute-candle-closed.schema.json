@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClosedOneMinuteAuthority",
+  "description": "Capital closed 1m+ OHLC is structure/context authority when structure_authority=true",
+  "type": "object",
+  "required": ["kind", "instrument", "one_shot", "structure_authority", "candle"],
+  "properties": {
+    "kind": { "enum": ["ClosedOneMinute", "ClosedHigherTimeframe"] },
+    "one_shot": { "const": true },
+    "structure_authority": { "type": "boolean" },
+    "instrument": { "type": "integer" },
+    "candle": { "type": "object" }
+  }
+}

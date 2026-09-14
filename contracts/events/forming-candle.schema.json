@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FormingCandle",
+  "type": "object",
+  "required": ["kind", "instrument", "timeframe", "candle"],
+  "properties": {
+    "kind": { "const": "FormingCandle" },
+    "instrument": { "type": "integer" },
+    "timeframe": { "type": "string" },
+    "structure_authority": { "const": false },
+    "candle": { "type": "object" }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClosedTenSecond",
+  "type": "object",
+  "required": ["kind", "instrument", "one_shot", "structure_authority", "candle"],
+  "properties": {
+    "kind": { "const": "ClosedTenSecond" },
+    "one_shot": { "const": true },
+    "structure_authority": { "const": false },
+    "instrument": { "type": "integer" },
+    "candle": { "type": "object" }
+  }
+}
