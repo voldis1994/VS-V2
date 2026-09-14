@@ -69,15 +69,15 @@ export function liveEntriesAllowed(): boolean {
   // Control-api arming gate first (fail-closed).
   if (requestedMode() !== 'LIVE') return false;
   if ((process.env.LIVE_TRADING_ENABLED || 'false').toLowerCase() !== 'true') return false;
-  // When C++ brain feed is live, C++ operating_mode is authoritative.
+  // When C++ market-core is authoritative: LIVE entries require a connected brain feed
+  // whose operating_mode is explicitly LIVE. Disconnect / missing snapshot / UNKNOWN → false.
   if (marketCoreAuthoritative()) {
     const snap = getLiveBrainSnapshot();
     const feed = getBrainFeedStatus();
-    if (feed.connected && snap?.operating_mode) {
-      return normalizeMode(snap.operating_mode) === 'LIVE';
-    }
+    if (!feed.connected || !snap?.operating_mode) return false;
+    return normalizeMode(snap.operating_mode) === 'LIVE';
   }
-  // No authoritative C++ snapshot yet — allow based on confirmed control-api LIVE arming.
+  // Non-C++ deployments: confirmed control-api LIVE arming is sufficient.
   return true;
 }
 
@@ -98,6 +98,8 @@ export function authoritativeRuntimeMode(): RuntimeModeName | 'UNKNOWN' {
     if (feed.connected && snap?.operating_mode) {
       return normalizeMode(snap.operating_mode) ?? 'UNKNOWN';
     }
+    // C++ owns mode — missing/disconnected feed is UNKNOWN (never invent LIVE).
+    return 'UNKNOWN';
   }
   return requestedMode();
 }

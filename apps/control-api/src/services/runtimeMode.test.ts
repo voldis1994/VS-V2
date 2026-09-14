@@ -198,4 +198,58 @@ describe('runtimeMode', () => {
       expect.objectContaining({ mode: 'SHADOW' }),
     );
   });
+
+  it('C++ disconnect/restart: LIVE entries fail-closed until feed returns LIVE', async () => {
+    vi.mocked(getLiveBrainSnapshot).mockReturnValue(healthySnapshot('LIVE') as never);
+    vi.mocked(getBrainFeedStatus).mockReturnValue({
+      connected: true,
+      model_id: 'prod-model',
+      model_version: '1.2.3',
+    } as never);
+    vi.mocked(getPipelineBridgeStatus).mockReturnValue({
+      healthy: true,
+      last_error: null,
+    } as never);
+
+    const armed = await switchRuntimeMode({
+      mode: 'LIVE',
+      confirm: true,
+      actor: 'ops',
+    });
+    expect(armed.ok).toBe(true);
+    expect(liveEntriesAllowed()).toBe(true);
+    expect(getRuntimeModeState().authoritative_mode).toBe('LIVE');
+
+    // Feed drops (market-core restart / disconnect) — entries must block immediately.
+    vi.mocked(getBrainFeedStatus).mockReturnValue({
+      connected: false,
+      model_id: null,
+      model_version: null,
+    } as never);
+    vi.mocked(getLiveBrainSnapshot).mockReturnValue(null as never);
+    expect(liveEntriesAllowed()).toBe(false);
+    expect(getRuntimeModeState().authoritative_mode).toBe('UNKNOWN');
+    // Existing positions may still be managed while control-api remains LIVE-armed.
+    expect(manageOpenPositionsAllowed()).toBe(true);
+
+    // Snapshot present but mode UNKNOWN / unparseable — still fail-closed.
+    vi.mocked(getBrainFeedStatus).mockReturnValue({
+      connected: true,
+      model_id: 'prod-model',
+      model_version: '1.2.3',
+    } as never);
+    vi.mocked(getLiveBrainSnapshot).mockReturnValue(healthySnapshot('UNKNOWN') as never);
+    expect(liveEntriesAllowed()).toBe(false);
+    expect(getRuntimeModeState().authoritative_mode).toBe('UNKNOWN');
+
+    // Connected but C++ still SHADOW after restart — no LIVE entries yet.
+    vi.mocked(getLiveBrainSnapshot).mockReturnValue(healthySnapshot('SHADOW') as never);
+    expect(liveEntriesAllowed()).toBe(false);
+    expect(getRuntimeModeState().authoritative_mode).toBe('SHADOW');
+
+    // Feed restored with authoritative LIVE — entries armed again.
+    vi.mocked(getLiveBrainSnapshot).mockReturnValue(healthySnapshot('LIVE') as never);
+    expect(liveEntriesAllowed()).toBe(true);
+    expect(getRuntimeModeState().authoritative_mode).toBe('LIVE');
+  });
 });
