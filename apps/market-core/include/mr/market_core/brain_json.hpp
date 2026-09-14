@@ -42,4 +42,12 @@ int publish_pipeline_heartbeat_to_control_api(const nlohmann::json& body,
                                              const std::string& control_api_url,
                                              const std::string& pipeline_token);
 
+/**
+ * Pull operator-requested runtime mode from Control API (PAPER/SHADOW/LIVE).
+ * C++ remains authoritative: it applies the request locally and republishes actual mode.
+ */
+std::optional<std::string> fetch_requested_runtime_mode_from_control_api(
+    const std::string& control_api_url,
+    const std::string& pipeline_token);
+
 }  // namespace mr

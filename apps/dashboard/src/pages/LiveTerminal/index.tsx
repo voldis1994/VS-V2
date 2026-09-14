@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveBrainFeed } from '../../hooks/useLiveBrainFeed';
+import { apiFetch } from '../../hooks/useApi';
 import { selectActiveInstrument, useLiveBrainStore } from '../../state/liveBrainStore';
 import type {
   BrainEventRecord,
@@ -17,6 +18,62 @@ function actionClass(a: TradeAction): string {
   if (a === 'BUY') return 'lt-action buy';
   if (a === 'SELL') return 'lt-action sell';
   return 'lt-action wait';
+}
+
+
+const RUNTIME_MODES = ['PAPER', 'SHADOW', 'LIVE'] as const;
+
+function RuntimeModeBanner({
+  mode,
+  authoritative,
+  liveEntries,
+  onSwitch,
+  busy,
+  msg,
+}: {
+  mode: string;
+  authoritative: string;
+  liveEntries: boolean;
+  onSwitch: (mode: string, confirm?: boolean) => void;
+  busy: boolean;
+  msg: string | null;
+}) {
+  const m = (mode || 'PAPER').toUpperCase();
+  return (
+    <div className={`rt-mode-banner mode-${m.toLowerCase()}`}>
+      <div className="rt-mode-label">RUNTIME MODE</div>
+      <div className="rt-mode-value">{m}</div>
+      <div className="rt-mode-meta">
+        C++ authoritative: <strong>{authoritative || '—'}</strong>
+        {' · '}
+        LIVE entries: <strong>{liveEntries ? 'ARMED' : 'BLOCKED'}</strong>
+      </div>
+      <div className="rt-mode-switch">
+        {RUNTIME_MODES.map((x) => (
+          <button
+            key={x}
+            type="button"
+            className={`rt-mode-btn ${m === x ? 'active' : ''}`}
+            disabled={busy || m === x}
+            onClick={() => {
+              if (x === 'LIVE') {
+                const ok = window.confirm(
+                  'Arm LIVE trading?\n\nRequires healthy broker/data/model/risk.\nThis enables real execution.',
+                );
+                if (!ok) return;
+                onSwitch(x, true);
+              } else {
+                onSwitch(x, false);
+              }
+            }}
+          >
+            {x}
+          </button>
+        ))}
+      </div>
+      {msg && <div className="rt-mode-msg">{msg}</div>}
+    </div>
+  );
 }
 
 function Zone({
@@ -208,6 +265,58 @@ export function LiveTerminalPage() {
   useLiveBrainFeed();
   const snapshot = useLiveBrainStore((s) => s.snapshot);
   const status = useLiveBrainStore((s) => s.status);
+  const [runtimeMode, setRuntimeMode] = useState('PAPER');
+  const [authMode, setAuthMode] = useState('—');
+  const [liveEntries, setLiveEntries] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeMsg, setModeMsg] = useState<string | null>(null);
+
+  const refreshRuntimeMode = async () => {
+    try {
+      const s = await apiFetch<{
+        mode?: string;
+        authoritative_mode?: string;
+        live_entries_allowed?: boolean;
+      }>('/api/system/runtime-mode');
+      setRuntimeMode(String(s.mode || snapshot?.operating_mode || 'PAPER').toUpperCase());
+      setAuthMode(String(s.authoritative_mode || snapshot?.operating_mode || '—').toUpperCase());
+      setLiveEntries(Boolean(s.live_entries_allowed));
+    } catch {
+      setRuntimeMode(String(snapshot?.operating_mode || 'PAPER').toUpperCase());
+      setAuthMode(String(snapshot?.operating_mode || '—').toUpperCase());
+    }
+  };
+
+  useEffect(() => {
+    void refreshRuntimeMode();
+    const id = window.setInterval(() => void refreshRuntimeMode(), 5000);
+    return () => window.clearInterval(id);
+  }, [snapshot?.operating_mode]);
+
+  const switchRuntimeMode = async (mode: string, confirm = false) => {
+    setModeBusy(true);
+    setModeMsg(null);
+    try {
+      const s = await apiFetch<{
+        mode?: string;
+        live_entries_allowed?: boolean;
+        authoritative_mode?: string;
+        error?: string;
+      }>('/api/system/runtime-mode', {
+        method: 'POST',
+        body: JSON.stringify({ mode, confirm, actor: 'dashboard' }),
+      });
+      setRuntimeMode(String(s.mode || mode).toUpperCase());
+      setAuthMode(String(s.authoritative_mode || s.mode || mode).toUpperCase());
+      setLiveEntries(Boolean(s.live_entries_allowed));
+      setModeMsg(`Mode → ${String(s.mode || mode).toUpperCase()}`);
+    } catch (e) {
+      setModeMsg(e instanceof Error ? e.message : 'Mode switch failed');
+    } finally {
+      setModeBusy(false);
+      void refreshRuntimeMode();
+    }
+  };
   const events = useLiveBrainStore((s) => s.events);
   const selectedEvent = useLiveBrainStore((s) => s.selectedEvent);
   const awaiting = useLiveBrainStore((s) => s.awaitingMarketCore);
@@ -228,6 +337,14 @@ export function LiveTerminalPage() {
 
   return (
     <div className="lt-root">
+      <RuntimeModeBanner
+        mode={runtimeMode}
+        authoritative={authMode}
+        liveEntries={liveEntries}
+        onSwitch={(m, c) => void switchRuntimeMode(m, c)}
+        busy={modeBusy}
+        msg={modeMsg}
+      />
       <header className="lt-top">
         <div className="lt-brand">
           <span className="lt-live-dot" data-on={wsConnected || status?.connected ? '1' : '0'} />
@@ -239,7 +356,7 @@ export function LiveTerminalPage() {
           </div>
         </div>
         <div className="lt-top-meta">
-          <span>mode {snapshot?.operating_mode ?? '—'}</span>
+          <span>mode {runtimeMode || snapshot?.operating_mode || '—'}</span>
           <span>brain {snapshot?.brain_version ?? status?.brain_version ?? '—'}</span>
           <span>
             model {(snapshot?.model_id ?? status?.model_id) || '—'}@

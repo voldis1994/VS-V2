@@ -169,8 +169,8 @@ export function Layout({ children }: { children: ReactNode }) {
             <span className={`status-pill ${openTrades > 0 ? '' : 'warn'}`}>
               POSITIONS {openTrades > 0 ? 'OPEN' : 'FLAT'}
             </span>
-            <span className={`status-pill ${status?.live_enabled ? 'warn' : ''}`}>
-              MODE {(status?.mode ?? 'LIVE').toUpperCase()}
+            <span className={`status-pill mode-${String(status?.mode || 'PAPER').toLowerCase()} ${status?.live_enabled ? 'warn' : ''}`}>
+              MODE {(status?.mode ?? 'PAPER').toUpperCase()}
             </span>
           </div>
 

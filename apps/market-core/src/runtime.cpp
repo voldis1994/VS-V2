@@ -46,6 +46,7 @@ RuntimeMode parse_runtime_mode(const std::string& mode) {
     if (mode == "PAPER") return RuntimeMode::Paper;
     if (mode == "DEMO") return RuntimeMode::Demo;
     if (mode == "LIVE") return RuntimeMode::Live;
+    if (mode == "SHADOW") return RuntimeMode::Shadow;
     return RuntimeMode::Paper;
 }
 

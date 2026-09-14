@@ -11,18 +11,18 @@ export function SettingsPage() {
   const goLive = async () => {
     setErr(null);
     setMsg(null);
+    const ok = window.confirm(
+      'Arm LIVE trading?\n\nRequires healthy broker/data/model/risk.\nEnables real execution.',
+    );
+    if (!ok) return;
     setBusy(true);
     try {
-      await apiFetch('/api/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ live_trading_enabled: true, operating_mode: 'LIVE' }),
-      });
-      await apiFetch('/api/system/mode', {
+      await apiFetch('/api/system/runtime-mode', {
         method: 'POST',
-        body: JSON.stringify({ mode: 'LIVE' }),
+        body: JSON.stringify({ mode: 'LIVE', confirm: true, actor: 'dashboard' }),
       });
       setNewMode('LIVE');
-      setMsg('LIVE armed — requires explicit LIVE_TRADING_ENABLED');
+      setMsg('LIVE armed (fail-closed health + confirmation)');
       refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed');
@@ -37,9 +37,19 @@ export function SettingsPage() {
     setBusy(true);
     try {
       const mode = newMode || String(data?.operating_mode || 'PAPER');
-      await apiFetch('/api/system/mode', {
+      let confirm = false;
+      if (mode === 'LIVE') {
+        confirm = window.confirm(
+          'Arm LIVE trading?\n\nRequires healthy broker/data/model/risk.\nEnables real execution.',
+        );
+        if (!confirm) {
+          setMsg('LIVE arm cancelled');
+          return;
+        }
+      }
+      await apiFetch('/api/system/runtime-mode', {
         method: 'POST',
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, confirm, actor: 'dashboard' }),
       });
       setMsg(`Mode → ${mode}`);
       refresh();
@@ -82,9 +92,9 @@ export function SettingsPage() {
             value={newMode || String(data?.operating_mode || 'PAPER')}
             onChange={(e) => setNewMode(e.target.value)}
           >
-            <option value="REPLAY">REPLAY</option>
+            
             <option value="PAPER">PAPER</option>
-            <option value="DEMO">DEMO</option>
+            <option value="SHADOW">SHADOW</option>
             <option value="LIVE">LIVE</option>
           </select>
           <button className="btn btn-primary" onClick={changeMode} disabled={busy}>

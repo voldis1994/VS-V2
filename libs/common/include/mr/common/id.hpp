@@ -24,7 +24,7 @@ using Timestamp = std::chrono::nanoseconds;
 using SteadyTimestamp = std::chrono::nanoseconds;
 
 enum class Direction : std::uint8_t { Flat = 0, Long = 1, Short = 2 };
-enum class OperatingMode : std::uint8_t { Replay = 0, Paper = 1, Demo = 2, Live = 3 };
+enum class OperatingMode : std::uint8_t { Replay = 0, Paper = 1, Demo = 2, Live = 3, Shadow = 4 };
 enum class HealthStatus : std::uint8_t { Healthy = 0, Degraded = 1, Unhealthy = 2, Disconnected = 3 };
 enum class ErrorSeverity : std::uint8_t { Recoverable = 0, Degraded = 1, Critical = 2 };
 

@@ -1,10 +1,15 @@
 
-export type OperatingMode = 'REPLAY' | 'PAPER' | 'DEMO' | 'LIVE';
+export type OperatingMode = 'PAPER' | 'SHADOW' | 'LIVE';
+
 export function operatingMode(): OperatingMode {
   const m = (process.env.OPERATING_MODE || 'PAPER').toUpperCase();
-  if (m === 'REPLAY' || m === 'PAPER' || m === 'DEMO' || m === 'LIVE') return m;
+  if (m === 'PAPER' || m === 'SHADOW' || m === 'LIVE') return m;
+  // Legacy aliases
+  if (m === 'REPLAY') return 'PAPER';
+  if (m === 'DEMO') return 'SHADOW';
   return 'PAPER';
 }
+
 export function liveTradingEnabled(): boolean {
   return (process.env.LIVE_TRADING_ENABLED || 'false').toLowerCase() === 'true';
 }

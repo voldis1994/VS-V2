@@ -2338,3 +2338,81 @@ button.regime-chip { cursor: pointer; }
   .lt-top { flex-direction: column; align-items: flex-start; }
   .lt-grid-2, .lt-pred { grid-template-columns: 1fr; }
 }
+
+
+/* ===== Runtime mode switch (PAPER / SHADOW / LIVE) ===== */
+.rt-mode-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(90deg, rgba(20,24,32,0.95), rgba(28,36,48,0.9));
+}
+.rt-mode-banner.mode-paper { box-shadow: inset 0 -2px 0 #6b8cae; }
+.rt-mode-banner.mode-shadow { box-shadow: inset 0 -2px 0 #c9a227; }
+.rt-mode-banner.mode-live { box-shadow: inset 0 -2px 0 #d64545; background: linear-gradient(90deg, rgba(48,16,16,0.95), rgba(40,20,20,0.9)); }
+.rt-mode-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: rgba(255,255,255,0.55);
+  font-weight: 600;
+}
+.rt-mode-value {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: #f4f1ea;
+}
+.rt-mode-banner.mode-live .rt-mode-value { color: #ff6b6b; }
+.rt-mode-banner.mode-shadow .rt-mode-value { color: #e8c547; }
+.rt-mode-banner.mode-paper .rt-mode-value { color: #8eb6d8; }
+.rt-mode-meta {
+  grid-column: 1 / span 2;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.65);
+}
+.rt-mode-switch {
+  display: flex;
+  gap: 0.4rem;
+  justify-self: end;
+}
+.rt-mode-btn {
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.25);
+  color: rgba(255,255,255,0.85);
+  padding: 0.45rem 0.85rem;
+  border-radius: 2px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.rt-mode-btn.active {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.45);
+}
+.rt-mode-btn:disabled { opacity: 0.45; cursor: default; }
+.rt-mode-msg {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: #e8c547;
+}
+.desk-mode-hero {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(0,0,0,0.2);
+}
+.desk-mode-hero .big {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.status-pill.mode-live { background: #d64545; color: #fff; }
+.status-pill.mode-shadow { background: #c9a227; color: #1a1a1a; }
+.status-pill.mode-paper { background: #3d5a73; color: #fff; }

@@ -119,3 +119,15 @@ target_link_libraries(test_stage10_full_integration_e2e PRIVATE
   GTest::gtest
   GTest::gtest_main)
 add_test(NAME test_stage10_full_integration_e2e COMMAND test_stage10_full_integration_e2e)
+
+add_executable(test_runtime_mode_switch test_runtime_mode_switch.cpp)
+target_link_libraries(test_runtime_mode_switch PRIVATE
+  mr::market-core
+  mr::execution-engine
+  mr::position-brain
+  mr::risk-engine
+  mr::brain-core
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_runtime_mode_switch COMMAND test_runtime_mode_switch)
+

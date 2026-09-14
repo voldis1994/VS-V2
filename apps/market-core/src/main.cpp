@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
     std::cout << "VS-V2 market-core ready mode=" << mode
               << " brain=" << mr::kBrainVersion << std::endl;
 
-    if (runtime_mode == mr::RuntimeMode::Live || runtime_mode == mr::RuntimeMode::Demo) {
+    if (runtime_mode == mr::RuntimeMode::Live || runtime_mode == mr::RuntimeMode::Demo || runtime_mode == mr::RuntimeMode::Shadow) {
         const auto creds = mr::load_capital_credentials_from_env();
         if (!creds.complete()) {
             std::cerr << "LIVE/DEMO requires " << mr::kCapitalApiKeyEnv << ", "
@@ -46,9 +46,9 @@ int main(int argc, char** argv) {
         const std::string base_url =
             !creds.base_url.empty()
                 ? creds.base_url
-                : (runtime_mode == mr::RuntimeMode::Live
-                       ? "https://api-capital.backend-capital.com"
-                       : "https://demo-api-capital.backend-capital.com");
+                : (runtime_mode == mr::RuntimeMode::Demo
+                       ? "https://demo-api-capital.backend-capital.com"
+                       : "https://api-capital.backend-capital.com");
 
         mr::CapitalClient client(base_url);
         client.connect();
@@ -67,9 +67,13 @@ int main(int argc, char** argv) {
         mr::LiveCapitalBootstrapConfig boot;
         boot.instrument = 1;
         boot.epic = creds.epic;
-        boot.operating_mode = (runtime_mode == mr::RuntimeMode::Live)
-                                  ? mr::OperatingMode::Live
-                                  : mr::OperatingMode::Demo;
+        if (runtime_mode == mr::RuntimeMode::Live) {
+            boot.operating_mode = mr::OperatingMode::Live;
+        } else if (runtime_mode == mr::RuntimeMode::Shadow) {
+            boot.operating_mode = mr::OperatingMode::Shadow;
+        } else {
+            boot.operating_mode = mr::OperatingMode::Demo;
+        }
         boot.enable_execution = true;
         if (const char* mp = std::getenv("VS_V2_MODEL_PATH")) {
             boot.model_path = mp;

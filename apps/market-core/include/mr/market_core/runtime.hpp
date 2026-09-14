@@ -11,7 +11,7 @@
 
 namespace mr {
 
-enum class RuntimeMode { Replay, Paper, Demo, Live };
+enum class RuntimeMode { Replay, Paper, Demo, Live, Shadow };
 
 class MarketCoreRuntime {
 public:

@@ -12,7 +12,7 @@ export async function registerSettingsRoutes(app: FastifyInstance): Promise<void
   app.get('/api/settings', async () => ({
     operating_mode: process.env.OPERATING_MODE || 'PAPER',
     live_trading_enabled: liveEnabled(),
-    operating_modes: ['REPLAY', 'PAPER', 'DEMO', 'LIVE'],
+    operating_modes: ['PAPER', 'SHADOW', 'LIVE'],
     primary_horizon_ms: 10000,
     entry_ttl_ms: 2000,
     log_level: process.env.LOG_LEVEL || 'info',
@@ -42,7 +42,7 @@ export async function registerSettingsRoutes(app: FastifyInstance): Promise<void
     }
 
     if (typeof body.operating_mode === 'string') {
-      const allowed = ['REPLAY', 'PAPER', 'DEMO', 'LIVE'];
+      const allowed = ['PAPER', 'SHADOW', 'LIVE'];
       if (allowed.includes(body.operating_mode)) {
         process.env.OPERATING_MODE = body.operating_mode;
       }

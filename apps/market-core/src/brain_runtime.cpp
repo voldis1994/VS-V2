@@ -15,9 +15,12 @@ const char* mode_str(OperatingMode m) {
             return "PAPER";
         case OperatingMode::Demo:
             return "DEMO";
+        case OperatingMode::Shadow:
+            return "SHADOW";
         case OperatingMode::Live:
-        default:
             return "LIVE";
+        default:
+            return "UNKNOWN";
     }
 }
 
@@ -32,6 +35,21 @@ void BrainRuntime::configure_from_env() {
     } else if (const char* tok = std::getenv("PIPELINE_SERVICE_TOKEN")) {
         pipeline_token_ = tok;
     }
+}
+
+std::optional<OperatingMode> BrainRuntime::pull_requested_operating_mode() const {
+    auto raw = fetch_requested_runtime_mode_from_control_api(control_api_url_, pipeline_token_);
+    if (!raw) return std::nullopt;
+    std::string m = *raw;
+    for (auto& c : m) {
+        if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    }
+    if (m == "LIVE") return OperatingMode::Live;
+    if (m == "SHADOW") return OperatingMode::Shadow;
+    if (m == "PAPER") return OperatingMode::Paper;
+    if (m == "REPLAY") return OperatingMode::Replay;
+    if (m == "DEMO") return OperatingMode::Shadow;  // operator alias
+    return std::nullopt;
 }
 
 void BrainRuntime::observe(const BrainSnapshot& snapshot, const BrainFeedRuntime& runtime) {

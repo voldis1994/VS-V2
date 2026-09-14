@@ -194,6 +194,16 @@ nlohmann::json instrument_to_json(InstrumentId id, const BrainContext& ctx,
 
 size_t sink(char*, size_t size, size_t nmemb, void*) { return size * nmemb; }
 
+struct CurlBody {
+    std::string data;
+};
+
+size_t write_body(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    auto* body = static_cast<CurlBody*>(userdata);
+    body->data.append(ptr, size * nmemb);
+    return size * nmemb;
+}
+
 }  // namespace
 
 nlohmann::json brain_snapshot_to_json(const BrainSnapshot& snap,
@@ -290,6 +300,50 @@ int publish_pipeline_heartbeat_to_control_api(const nlohmann::json& body,
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return static_cast<int>(http);
+}
+
+std::optional<std::string> fetch_requested_runtime_mode_from_control_api(
+    const std::string& control_api_url,
+    const std::string& pipeline_token) {
+    if (control_api_url.empty()) return std::nullopt;
+    const std::string url = control_api_url + "/api/system/runtime-mode";
+
+    CURL* curl = curl_easy_init();
+    if (!curl) return std::nullopt;
+
+    CurlBody body;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Accept: application/json");
+    if (!pipeline_token.empty()) {
+        const std::string auth = "x-pipeline-token: " + pipeline_token;
+        headers = curl_slist_append(headers, auth.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
+
+    const CURLcode rc = curl_easy_perform(curl);
+    long http = -1;
+    if (rc == CURLE_OK) {
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http);
+    }
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (http != 200 || body.data.empty()) return std::nullopt;
+    try {
+        const auto j = nlohmann::json::parse(body.data);
+        if (!j.contains("mode") || !j["mode"].is_string()) return std::nullopt;
+        const std::string mode = j["mode"].get<std::string>();
+        if (mode.empty()) return std::nullopt;
+        return mode;
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 }  // namespace mr

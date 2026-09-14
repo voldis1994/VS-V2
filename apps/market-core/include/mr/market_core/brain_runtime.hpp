@@ -5,6 +5,7 @@
 #include "mr/market_core/brain_json.hpp"
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace mr {
@@ -28,6 +29,12 @@ public:
     void configure_from_env();
 
     void observe(const BrainSnapshot& snapshot, const BrainFeedRuntime& runtime = {});
+
+    /**
+     * Pull operator-requested PAPER/SHADOW/LIVE from Control API.
+     * Returns nullopt when unavailable; caller applies via pipeline set_operating_mode.
+     */
+    [[nodiscard]] std::optional<OperatingMode> pull_requested_operating_mode() const;
 
     [[nodiscard]] BrainSnapshot latest() const { return latest_; }
     [[nodiscard]] BrainFeedRuntime latest_runtime() const { return runtime_; }

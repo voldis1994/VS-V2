@@ -4,6 +4,11 @@ import { TelemetryBroadcaster } from '../ws/telemetry.js';
 import { getBrainFeedStatus } from '../services/liveBrainFeed.js';
 import { getPipelineBridgeStatus } from '../services/pipelineBridge.js';
 import { marketCoreAuthoritative } from '../config/environment.js';
+import {
+  getRuntimeModeState,
+  switchRuntimeMode,
+  RUNTIME_MODES,
+} from '../services/runtimeMode.js';
 
 function liveEnabled(): boolean {
   const v = process.env.LIVE_TRADING_ENABLED;
@@ -72,36 +77,90 @@ export async function registerSystemRoutes(
       capital_markets: capitalMarkets,
       open_positions: openPositions,
       today_executions: todayExecutions,
-      mode: process.env.OPERATING_MODE || 'PAPER',
+      mode: getRuntimeModeState().mode,
+      authoritative_mode: getRuntimeModeState().authoritative_mode,
       live_enabled: liveEnabled(),
+      live_entries_allowed: getRuntimeModeState().live_entries_allowed,
+      manage_open_positions: getRuntimeModeState().manage_open_positions,
+      runtime_health: getRuntimeModeState().health,
       server_time: new Date().toISOString(),
       latency: telemetry.getLatestMetrics(),
-      status: !dbOk ? 'DEGRADED' : (liveEnabled() && (process.env.OPERATING_MODE || 'PAPER') === 'LIVE' ? 'LIVE' : 'READY'),
+      status: !dbOk ? 'DEGRADED' : (liveEnabled() && getRuntimeModeState().mode === 'LIVE' ? 'LIVE' : 'READY'),
       market_core_authoritative: marketCoreAuthoritative(),
       brain_feed: getBrainFeedStatus(),
       pipeline_bridge: getPipelineBridgeStatus(),
     };
   });
 
-  app.get('/api/system/mode', async () => ({
-    mode: process.env.OPERATING_MODE || 'PAPER',
-    live_enabled: liveEnabled(),
-    allowed: ['REPLAY', 'PAPER', 'DEMO', 'LIVE'],
-  }));
+  app.get('/api/system/mode', async () => {
+    const state = getRuntimeModeState();
+    return {
+      mode: state.mode,
+      authoritative_mode: state.authoritative_mode,
+      cpp_authoritative: state.cpp_authoritative,
+      live_enabled: state.live_trading_enabled,
+      live_entries_allowed: state.live_entries_allowed,
+      manage_open_positions: state.manage_open_positions,
+      health: state.health,
+      last_switch: state.last_switch,
+      allowed: [...RUNTIME_MODES],
+    };
+  });
 
   app.post('/api/system/mode', async (request, reply) => {
-    const body = request.body as { mode: string };
-    const prev = process.env.OPERATING_MODE;
-    const allowed = ['REPLAY', 'PAPER', 'DEMO', 'LIVE'];
-    if (!allowed.includes(body.mode)) {
-      return reply.code(400).send({ error: `Invalid mode. Use: ${allowed.join(', ')}` });
+    const body = request.body as {
+      mode?: string;
+      confirm?: boolean;
+      actor?: string;
+      confirmed?: boolean;
+    };
+    const result = await switchRuntimeMode({
+      mode: String(body.mode || ''),
+      confirm: body.confirm === true || body.confirmed === true,
+      actor: body.actor,
+    });
+    if (!result.ok) {
+      return reply.code(400).send({
+        error: result.error,
+        mode: result.state.mode,
+        health: result.health ?? result.state.health,
+        state: result.state,
+      });
     }
-    // Fail-closed: mode change alone does not arm LIVE trading.
-    process.env.OPERATING_MODE = body.mode;
-    if (body.mode !== 'LIVE') {
-      process.env.LIVE_TRADING_ENABLED = 'false';
+    return {
+      mode: result.state.mode,
+      previous: result.state.last_switch.from,
+      live_enabled: result.state.live_trading_enabled,
+      live_entries_allowed: result.state.live_entries_allowed,
+      manage_open_positions: result.state.manage_open_positions,
+      authoritative_mode: result.state.authoritative_mode,
+      health: result.state.health,
+      last_switch: result.state.last_switch,
+    };
+  });
+
+  app.get('/api/system/runtime-mode', async () => getRuntimeModeState());
+
+  app.post('/api/system/runtime-mode', async (request, reply) => {
+    const body = request.body as {
+      mode?: string;
+      confirm?: boolean;
+      actor?: string;
+      confirmed?: boolean;
+    };
+    const result = await switchRuntimeMode({
+      mode: String(body.mode || ''),
+      confirm: body.confirm === true || body.confirmed === true,
+      actor: body.actor,
+    });
+    if (!result.ok) {
+      return reply.code(400).send({
+        error: result.error,
+        health: result.health ?? result.state.health,
+        state: result.state,
+      });
     }
-    return { mode: body.mode, previous: prev, live_enabled: liveEnabled() };
+    return result.state;
   });
 
   app.get('/api/system/metrics', async () => telemetry.getLatestMetrics());

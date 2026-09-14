@@ -37,6 +37,7 @@ import {
   type MultiFeedLeg,
 } from './robotReader.js';
 import { marketCoreAuthoritative } from '../config/environment.js';
+import { liveEntriesAllowed } from './runtimeMode.js';
 import {
   aggregateSecondsToTen,
   emptyTenSecState,
@@ -1252,8 +1253,8 @@ async function robotCycle(s: Internal) {
     let setupType: string | null = null;
 
     if (s.ohlcState.just_closed && bar) {
-      if (marketCoreAuthoritative()) {
-        // C++ market-core owns entry — no parallel TS trading brain.
+      if (marketCoreAuthoritative() || !liveEntriesAllowed()) {
+        // C++ owns entry, or runtime mode is not LIVE-armed (PAPER/SHADOW) — no TS LIVE entry.
       } else {
       const sig = decideEntryFrom10sRegime(bar, s.regime);
       if (sig) {
@@ -1394,7 +1395,7 @@ export async function startRobotSession(input: {
     open_side: null,
     safety_sl: null,
     error: null,
-    entry_enabled: marketCoreAuthoritative()
+    entry_enabled: marketCoreAuthoritative() || !liveEntriesAllowed()
       ? false
       : input.entry_enabled !== false,
     timer: null,

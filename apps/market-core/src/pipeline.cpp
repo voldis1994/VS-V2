@@ -64,6 +64,13 @@ const char* health_status_name(HealthStatus s) {
 }  // namespace
 
 void MarketCorePipeline::publish_brain_feed() {
+    // Operator switch (Dashboard → Control API) is applied here; C++ remains authoritative.
+    if (auto requested = brain_runtime_.pull_requested_operating_mode()) {
+        if (*requested != mode_) {
+            set_operating_mode(*requested);
+        }
+    }
+
     BrainFeedRuntime runtime;
 
     for (const auto& c : health_.snapshot()) {
@@ -380,6 +387,8 @@ bool MarketCorePipeline::enter_from_decision(const TradeIntent& intent,
                                              const DualPrediction& dual,
                                              double mid,
                                              double spread) {
+    // LIVE→SHADOW demotion: block new entries; open positions keep manage/exit path.
+    if (mode_ == OperatingMode::Shadow) return false;
     if (intent.decision != EntryDecision::EntryReady) return false;
 
     for (const auto& p : open_positions_) {

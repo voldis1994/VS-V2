@@ -17,6 +17,7 @@ import {
 import { formatTradeLabel } from './tradePresentation.js';
 import { notePipelineRegime } from './regimes.js';
 import { attachManageOnlyRobot } from './robotDesk.js';
+import { liveEntriesAllowed } from './runtimeMode.js';
 
 export { stopEntryRobotsForAccount } from './robotDesk.js';
 
@@ -75,6 +76,14 @@ async function loadCreds(connectionId: number): Promise<Record<string, string>> 
 export async function executePipelineIntent(
   intent: PipelineIntentInput
 ): Promise<FanoutResult> {
+  if (!liveEntriesAllowed()) {
+    // Fail-closed: PAPER/SHADOW (or LIVE not armed) must not open new LIVE positions.
+    // Existing positions continue via manage/exit paths (robotDesk / position brain).
+    throw new Error(
+      'LIVE_ENTRIES_BLOCKED: runtime mode is not LIVE-armed (SHADOW demotion keeps manage/exit only)',
+    );
+  }
+
   const epic = String(intent.epic || '').trim();
   const direction = intent.direction === 'SELL' ? 'SELL' : 'BUY';
   const setupType = intent.setup_type ? String(intent.setup_type) : null;

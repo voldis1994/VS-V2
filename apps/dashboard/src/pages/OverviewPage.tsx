@@ -53,7 +53,7 @@ type MarketOpt = {
   lot_size: number;
 };
 
-const OPERATING_MODES = ['REPLAY', 'PAPER', 'DEMO', 'LIVE'] as const;
+const OPERATING_MODES = ['PAPER', 'SHADOW', 'LIVE'] as const;
 
 export function OverviewPage() {
   const {
@@ -183,12 +183,22 @@ export function OverviewPage() {
     setBusy(true);
     setMsg(null);
     try {
-      await apiFetch('/api/system/mode', {
+      let confirm = false;
+      if (mode === 'LIVE') {
+        confirm = window.confirm(
+          'Arm LIVE trading?\n\nRequires healthy broker/data/model/risk.\nEnables real execution.',
+        );
+        if (!confirm) {
+          setMsg('LIVE arm cancelled');
+          return;
+        }
+      }
+      await apiFetch('/api/system/runtime-mode', {
         method: 'POST',
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, confirm, actor: 'dashboard' }),
       });
       setRunnerOn(mode === 'LIVE');
-      setMsg(`Operating mode → ${mode}`);
+      setMsg(`Runtime mode → ${mode}`);
       refreshDesk();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Mode change failed');
@@ -201,16 +211,19 @@ export function OverviewPage() {
     setBusy(true);
     setMsg(null);
     try {
-      await apiFetch('/api/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ live_trading_enabled: true, confirm_live: true }),
-      });
-      await apiFetch('/api/system/mode', {
+      const confirm = window.confirm(
+        'Arm LIVE trading?\n\nRequires healthy broker/data/model/risk.\nEnables real execution.',
+      );
+      if (!confirm) {
+        setMsg('LIVE arm cancelled');
+        return;
+      }
+      await apiFetch('/api/system/runtime-mode', {
         method: 'POST',
-        body: JSON.stringify({ mode: 'LIVE' }),
+        body: JSON.stringify({ mode: 'LIVE', confirm: true, actor: 'dashboard' }),
       });
       setRunnerOn(true);
-      setMsg('AI runner armed → LIVE gate ON + mode LIVE');
+      setMsg('AI runner armed → LIVE');
       refreshDesk();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Failed to start runner');
@@ -223,12 +236,12 @@ export function OverviewPage() {
     setBusy(true);
     setMsg(null);
     try {
-      await apiFetch('/api/system/mode', {
+      await apiFetch('/api/system/runtime-mode', {
         method: 'POST',
-        body: JSON.stringify({ mode: 'PAPER' }),
+        body: JSON.stringify({ mode: 'SHADOW', actor: 'dashboard' }),
       });
       setRunnerOn(false);
-      setMsg('Runner stopped → mode PAPER');
+      setMsg('Runner demoted → SHADOW (manage/exit only)');
       refreshDesk();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Failed to stop runner');
@@ -247,6 +260,15 @@ export function OverviewPage() {
 
   return (
     <div className="main-dash">
+      <div className={`desk-mode-hero mode-${String(status?.mode || 'PAPER').toLowerCase()}`}>
+        <div className="rt-mode-label">RUNTIME MODE</div>
+        <div className="big">{(status?.mode || 'PAPER').toUpperCase()}</div>
+        <div className="rt-mode-meta">
+          entries {(status as { live_entries_allowed?: boolean } | null)?.live_entries_allowed ? 'ARMED' : 'BLOCKED'}
+          {' · '}
+          C++ {(status as { authoritative_mode?: string } | null)?.authoritative_mode || status?.mode || '—'}
+        </div>
+      </div>
       <div className="dash-head">
         <div className="dash-brand-hero">
           <Logo size={96} wordmark />
