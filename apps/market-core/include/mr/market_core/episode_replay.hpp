@@ -1,0 +1,43 @@
+#pragma once
+
+#include "mr/memory_engine/episode_types.hpp"
+#include "mr/market_core/pipeline.hpp"
+#include "mr/replay/paper_order_gateway.hpp"
+
+#include <vector>
+
+namespace mr {
+
+/**
+ * Replays a TradeEpisode market stream into the production MarketCorePipeline
+ * in correct multi-clock order. Never binds Capital LIVE — paper only.
+ */
+class EpisodeReplay {
+public:
+    struct Result {
+        std::vector<EpisodeClockDomain> clock_order;
+        BrainSnapshot final_brain{};
+        std::vector<PositionState> open_positions;
+        std::vector<TradeIntent> pending_intents;
+        std::size_t raw_count{0};
+        std::size_t closed_10s_count{0};
+        std::size_t authority_count{0};
+        bool used_live_gateway{false};
+    };
+
+    EpisodeReplay() = default;
+
+    /** Optional paper gateway — if unset, no execution (pending intents only). */
+    void bind_paper_gateway(PaperOrderGateway& gateway);
+
+    void set_account_equity(double equity);
+
+    Result run(const TradeEpisode& episode);
+
+private:
+    PaperOrderGateway* paper_{nullptr};
+    double equity_{0};
+    bool equity_set_{false};
+};
+
+}  // namespace mr

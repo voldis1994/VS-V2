@@ -12,7 +12,19 @@ void MarketCorePipeline::configure(const ConfigRegistry& config) {
 }
 
 void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
+    // Caller responsibility: Replay/Paper must use PaperOrderGateway — never Capital LIVE.
     execution_ = std::make_unique<ExecutionEngine>(gateway);
+}
+
+void MarketCorePipeline::set_operating_mode(OperatingMode mode) {
+    mode_ = mode;
+    if (mode_ == OperatingMode::Replay) {
+        execution_.reset();
+    }
+}
+
+void MarketCorePipeline::attach_episode_recorder(EpisodeRecorder* recorder) {
+    recorder_ = recorder;
 }
 
 void MarketCorePipeline::set_account_equity(double equity) {
@@ -24,6 +36,10 @@ void MarketCorePipeline::clear_account_equity() { account_equity_.reset(); }
 
 void MarketCorePipeline::process_event(const MarketEvent& event) {
     telemetry_.record_event();
+
+    if (recorder_ != nullptr && recorder_->active()) {
+        recorder_->record_raw_quote(event);
+    }
 
     // RAW QUOTE domain
     auto norm = normalizer_.normalize(event);
@@ -59,6 +75,9 @@ void MarketCorePipeline::process_event(const MarketEvent& event) {
 }
 
 void MarketCorePipeline::process_authority_ohlc(const Candle& closed, Timeframe tf) {
+    if (recorder_ != nullptr && recorder_->active()) {
+        recorder_->record_authority_ohlc(closed, tf, closed.open_time);
+    }
     // Capital closed 1m+ — the ONLY structure/context authority.
     auto& ce = brain_.candles(closed.instrument != kInvalidInstrument ? closed.instrument : 1);
     auto events = ce.ingest_authority_ohlc(closed, tf);
@@ -203,6 +222,14 @@ void MarketCorePipeline::execute_entry(const TradeIntent& intent,
     hold.reason_codes.push_back("OPEN");
     brain_.apply_position(intent.instrument, pos, hold, ts);
     open_positions_.push_back(std::move(pos));
+    if (recorder_ != nullptr && recorder_->active()) {
+        recorder_->on_entry(open_positions_.back(), ts);
+        const auto snap = brain_.snapshot();
+        const auto it = snap.instruments.find(intent.instrument);
+        if (it != snap.instruments.end()) {
+            recorder_->record_brain_frame(it->second, EpisodeClockDomain::AuthorityOhlc, ts);
+        }
+    }
 }
 
 void MarketCorePipeline::manage_open_positions(InstrumentId instrument,
@@ -240,6 +267,9 @@ void MarketCorePipeline::apply_position_action(PositionState& pos,
         auto exec = execution_->close(pos.deal_id, pos.intent_id);
         brain_.apply_execution(pos.instrument, exec, ts);
         if (exec.status == ExecutionStatus::Filled) {
+            if (recorder_ != nullptr && recorder_->active()) {
+                recorder_->on_exit(pos, decision, mid, ts);
+            }
             pos.quantity = 0.0;
         }
         return;

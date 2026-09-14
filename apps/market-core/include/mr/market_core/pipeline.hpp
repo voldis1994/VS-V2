@@ -18,6 +18,8 @@
 #include "mr/common/config.hpp"
 #include "mr/market_types/quote.hpp"
 #include "mr/market_types/market_clock.hpp"
+#include "mr/memory_engine/episode_recorder.hpp"
+#include "mr/common/id.hpp"
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -38,6 +40,17 @@ public:
 
     /** Bind Capital order transport — enables live ExecutionEngine path. */
     void bind_order_gateway(OrderGateway& gateway);
+
+    /**
+     * Operating mode. Replay refuses Capital LIVE gateways.
+     * Paper/Replay may use PaperOrderGateway only.
+     */
+    void set_operating_mode(OperatingMode mode);
+    [[nodiscard]] OperatingMode operating_mode() const { return mode_; }
+
+    /** Attach capture-only episode recorder (evidence/history — not a decision brain). */
+    void attach_episode_recorder(EpisodeRecorder* recorder);
+    [[nodiscard]] EpisodeRecorder* episode_recorder() const { return recorder_; }
 
     /** RAW QUOTE path — never updates structure authority. */
     void process_event(const MarketEvent& event);
@@ -128,6 +141,8 @@ private:
     std::unordered_map<InstrumentId, DualPrediction> last_dual_;
     double stale_ms_{500};
     std::optional<double> account_equity_{};  // unset => risk fail-closed
+    OperatingMode mode_{OperatingMode::Live};
+    EpisodeRecorder* recorder_{nullptr};
 };
 
 }  // namespace mr

@@ -8,6 +8,7 @@ add_library(mr_market_core STATIC
     src/health_monitor.cpp
     src/live_multi_clock_path.cpp
     src/capital_env.cpp
+    src/episode_replay.cpp
 )
 add_library(mr::market-core ALIAS mr_market_core)
 target_include_directories(mr_market_core PUBLIC include src)
@@ -29,6 +30,8 @@ target_link_libraries(mr_market_core PUBLIC
     mr::position-brain
     mr::capital-client
     mr::telemetry
+    mr::memory-engine
+    mr::replay
     mr::common
 )
 target_compile_features(mr_market_core PUBLIC cxx_std_20)
