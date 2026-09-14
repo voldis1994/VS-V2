@@ -1,0 +1,3 @@
+g++ >= 12 (C++20)
+clang++ >= 15 (C++20)
+MSVC 19.3+ / Visual Studio 2022 (C++20)

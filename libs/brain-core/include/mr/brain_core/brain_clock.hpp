@@ -1,3 +1,2 @@
 #pragma once
-#include "mr/common/clock.hpp"
-namespace mr { using BrainClock = Clock; }
+#include "mr/brain/brain_clock.hpp"

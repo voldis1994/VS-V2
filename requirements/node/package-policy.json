@@ -1,0 +1,5 @@
+{
+  "allowPrivatePackages": false,
+  "preferLockfile": true,
+  "workspaces": ["apps/control-api", "apps/dashboard"]
+}

@@ -1,0 +1,4 @@
+cmake>=3.24
+ninja>=1.11
+git>=2.34
+pkg-config

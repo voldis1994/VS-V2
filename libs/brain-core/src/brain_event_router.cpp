@@ -1,4 +1,4 @@
-#include "mr/brain_core/brain_event_router.hpp"
+#include "mr/brain/brain_event_router.hpp"
 namespace mr {
 void BrainEventRouter::subscribe(BrainEventType type, BrainEventHandler h) { handlers_[type].push_back(std::move(h)); }
 void BrainEventRouter::publish(const BrainEvent& e) {

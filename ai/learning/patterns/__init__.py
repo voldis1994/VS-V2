@@ -1,1 +1,2 @@
-from .detector import *\n
+from .detector import *
+

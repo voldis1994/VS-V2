@@ -16,7 +16,7 @@ struct BrainScores {
     std::string bias{"NEUTRAL"};
 };
 
-struct BrainSnapshot {
+struct SimpleBrainSnapshot {
     InstrumentId instrument{kInvalidInstrument};
     Timestamp timestamp{};
     BrainScores scores{};
@@ -25,10 +25,10 @@ struct BrainSnapshot {
 
 class BrainEngine {
 public:
-    BrainSnapshot update(InstrumentId instrument, const std::vector<CandleBar>& bars, Timestamp ts);
+    SimpleBrainSnapshot update(InstrumentId instrument, const std::vector<CandleBar>& bars, Timestamp ts);
 
 private:
-    std::unordered_map<InstrumentId, BrainSnapshot> latest_;
+    std::unordered_map<InstrumentId, SimpleBrainSnapshot> latest_;
 };
 
 }  // namespace mr

@@ -1,0 +1,21 @@
+{
+  "name": "vs-v2",
+  "version-string": "2.0.0",
+  "dependencies": [
+    "fmt",
+    "spdlog",
+    "yaml-cpp",
+    "nlohmann-json",
+    "openssl",
+    "curl",
+    "gtest",
+    "zlib"
+  ],
+  "features": {
+    "benchmarks": {
+      "description": "Google Benchmark (optional)",
+      "dependencies": ["benchmark"]
+    }
+  },
+  "builtin-baseline": "3508985146f1b1d248c67ead13f8f54be5b4f5da"
+}

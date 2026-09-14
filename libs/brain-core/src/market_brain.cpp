@@ -1,4 +1,4 @@
-#include "mr/brain_core/market_brain.hpp"
+#include "mr/brain/market_brain.hpp"
 namespace mr {
 CandleEngine& MarketBrain::candles(InstrumentId inst) { return candle_engines_[inst]; }
 void MarketBrain::on_normalized(const NormalizedEvent& e, const ConsensusQuote& consensus) {

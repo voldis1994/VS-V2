@@ -1,22 +1,25 @@
 #pragma once
 
-#include "mr/brain/brain_engine.hpp"
+#include "mr/brain/market_brain.hpp"
 #include "mr/market_core/pipeline.hpp"
-#include <unordered_map>
+#include <vector>
 
 namespace mr {
 
-/** Tracks per-instrument brain snapshots for streaming to control-api. */
+/** Tracks brain snapshots for streaming to control-api. */
 class BrainRuntime {
 public:
     void observe(const BrainSnapshot& snapshot);
-    [[nodiscard]] BrainSnapshot latest(InstrumentId instrument) const;
-    [[nodiscard]] std::vector<BrainSnapshot> all() const;
+    [[nodiscard]] BrainSnapshot latest() const { return latest_; }
+    [[nodiscard]] bool has_snapshot() const { return has_; }
 
 private:
-    std::unordered_map<InstrumentId, BrainSnapshot> snapshots_;
+    BrainSnapshot latest_{};
+    bool has_{false};
 };
 
-void sync_brain_runtime(BrainRuntime& runtime, const MarketCorePipeline& pipeline, InstrumentId instrument);
+inline void sync_brain_runtime(BrainRuntime& runtime, MarketBrain& brain) {
+    runtime.observe(brain.snapshot());
+}
 
 }  // namespace mr

@@ -1,5 +1,5 @@
 #pragma once
-#include "mr/brain_core/market_brain.hpp"
+#include "mr/brain/market_brain.hpp"
 #include "mr/normalization/normalizer.hpp"
 #include "mr/data_quality/quality_engine.hpp"
 #include "mr/feed_fusion/feed_fusion_engine.hpp"
@@ -11,7 +11,7 @@
 #include "mr/prediction_engine/prediction_engine.hpp"
 #include "mr/decision_engine/decision_engine.hpp"
 #include "mr/telemetry/telemetry_hub.hpp"
-#include "mr/brain_core/brain_version.hpp"
+#include "mr/brain/brain_version.hpp"
 #include "mr/common/config.hpp"
 #include "mr/market_types/quote.hpp"
 #include <vector>

@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "preview:client": "vite preview --config vite.client.config.ts",
-    "test": "vitest run",
+    "test": "vitest run tests",
     "test:gateway": "node ./client-gateway.test.mjs"
   },
   "dependencies": {

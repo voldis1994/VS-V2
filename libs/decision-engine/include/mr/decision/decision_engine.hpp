@@ -1,26 +1,20 @@
 #pragma once
-
-#include "mr/brain/brain_engine.hpp"
-#include <string>
-#include <vector>
-
+#include "mr/decision/opportunity.hpp"
+#include "mr/decision/trade_decision.hpp"
+#include "mr/decision/expected_value.hpp"
+#include "mr/decision/action_score.hpp"
+#include "mr/decision/decision_state.hpp"
+#include "mr/prediction_engine/prediction.hpp"
+#include "mr/scenario_engine/scenario.hpp"
+#include "mr/market_types/quote.hpp"
 namespace mr {
-
-enum class DecisionAction : std::uint8_t { Wait = 0, Buy = 1, Sell = 2, Block = 3 };
-
-struct DecisionResult {
-    InstrumentId instrument{kInvalidInstrument};
-    DecisionAction action{DecisionAction::Wait};
-    double buy_score{0};
-    double sell_score{0};
-    double confidence{0};
-    std::string reason;
-    std::vector<std::string> reason_codes;
-};
-
 class DecisionEngine {
 public:
-    DecisionResult evaluate(const BrainSnapshot& brain, double spread, double min_confidence = 0.55);
+    explicit DecisionEngine(IdGenerator& ids) : ids_(ids) {}
+    Opportunity evaluate_opportunity(const Scenario& sc, const Prediction& pred, double spread_cost, Direction dir);
+    TradeIntent decide(const Opportunity& opp, const Quote& quote, std::uint64_t ttl_ms = 2000);
+private:
+    IdGenerator& ids_;
+    double compute_ev(double prob, double win, double loss, double cost) const;
 };
-
-}  // namespace mr
+}

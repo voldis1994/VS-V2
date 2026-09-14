@@ -1,0 +1,4 @@
+postgresql>=16
+redis>=7 (optional)
+curl
+openssl

@@ -1,1 +1,2 @@
-from .platt import platt_scale\n
+from .platt import platt_scale
+

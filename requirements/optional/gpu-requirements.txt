@@ -1,0 +1,3 @@
+Optional for ML training acceleration.
+NVIDIA driver + CUDA toolkit when using GPU wheels.
+Not required for market-core / control-api / dashboard.

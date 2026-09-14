@@ -1,1 +1,2 @@
-from .scorer import *\n
+from .scorer import *
+

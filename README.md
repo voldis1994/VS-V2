@@ -57,4 +57,4 @@ export PIPELINE_TOKEN=... CAPITAL_API_KEY=... MARKET_CORE_BRIDGE=1
 - `scripts/build.sh` — C++ + Node workspaces
 - `scripts/start-dev.sh` — postgres/redis + API + dashboard
 - `scripts/start-paper.sh` / `start-live.sh` / `start-replay.sh`
-- `tools/doctor.py` — environment check
+- `tools/environment/doctor.py` — environment check

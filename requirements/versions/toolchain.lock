@@ -1,0 +1,6 @@
+cmake=3.24
+ninja=1.11
+gcc=12
+node=20
+python=3.11
+postgres=16

@@ -1,0 +1,6 @@
+# VS-V2 system requirements
+Linux: Ubuntu 22.04+ or Debian 12+
+Windows: Windows 10/11 x64 with MSVC 2022 or Build Tools
+RAM: 8 GB minimum (16 GB recommended for learning)
+Disk: 20 GB free for build artifacts and datasets
+Network: outbound HTTPS for Capital.com API and package registries

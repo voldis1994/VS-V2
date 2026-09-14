@@ -1,3 +1,2 @@
-#!/bin/bash
-set -euo pipefail
-command -v cmake && command -v node && command -v python3
+#!/usr/bin/env bash
+exec "$(dirname "$0")/scripts/check-environment.sh" "$@"

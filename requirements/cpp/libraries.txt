@@ -1,0 +1,8 @@
+fmt
+spdlog
+yaml-cpp
+nlohmann-json
+openssl
+curl
+gtest
+zlib

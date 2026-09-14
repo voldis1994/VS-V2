@@ -1,33 +1,29 @@
 #pragma once
-
-#include "mr/decision/decision_engine.hpp"
-#include <vector>
+#include "mr/risk/risk_limits.hpp"
+#include "mr/risk/risk_state.hpp"
+#include "mr/risk/risk_request.hpp"
+#include "mr/risk/risk_decision.hpp"
+#include "mr/risk/exposure_state.hpp"
+#include "mr/decision/trade_decision.hpp"
+#include "mr/position_brain/position_types.hpp"
+#include <string>
 
 namespace mr {
 
-enum class RiskIntentType : std::uint8_t { None = 0, Entry = 1, Exit = 2, Reduce = 3 };
-
-struct RiskIntent {
-    TradeIntentId id{0};
-    InstrumentId instrument{kInvalidInstrument};
-    RiskIntentType type{RiskIntentType::None};
-    Direction direction{Direction::Flat};
-    double reference_price{0};
-    double size_fraction{0};
-    double max_risk_fraction{0};
-    double confidence{0};
-    std::string human_explanation;
-    std::vector<std::string> reason_codes;
-};
+struct SizingResult { double quantity{0}; bool approved{false}; std::string reason; };
+struct GuardResult { bool pass{true}; std::string reason; };
 
 class RiskEngine {
 public:
-    explicit RiskEngine(IdGenerator& intent_ids);
-    std::vector<RiskIntent> from_decision(const DecisionResult& decision, double mid_price,
-                                          double account_risk_budget = 0.01);
-
+    explicit RiskEngine(RiskLimits limits = {}) : limits_(limits) {}
+    SizingResult size_position(const TradeIntent& intent, double balance, double price);
+    GuardResult pre_trade_check(const TradeIntent& intent, double spread_cost);
+    GuardResult monitor_position(const PositionState& pos, double daily_pnl);
+    RiskDecision evaluate(const RiskRequest& request);
+    bool emergency_stop{false};
 private:
-    IdGenerator& intent_ids_;
+    RiskLimits limits_;
+    double daily_pnl_{0};
 };
 
-}  // namespace mr
+}

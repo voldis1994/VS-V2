@@ -1,1 +1,2 @@
-from .trainer import train_baseline\n
+from .trainer import train_baseline
+
