@@ -70,10 +70,21 @@ void MarketBrain::apply_micro_evidence(InstrumentId instrument,
     router_.publish(closed);
 }
 
+void MarketBrain::apply_prediction(InstrumentId instrument,
+                                   const DualPrediction& prediction,
+                                   Timestamp ts) {
+    state_.apply_prediction(instrument, prediction, ts);
+}
+
+void MarketBrain::apply_decision(InstrumentId instrument,
+                                 const Opportunity& decision,
+                                 TradeAction action,
+                                 Timestamp ts) {
+    state_.apply_decision(instrument, decision, action, ts);
+}
+
 BrainSnapshot MarketBrain::snapshot() const {
-    auto s = state_.latest();
-    s.id = snapshot_ids_.next;
-    return s;
+    return state_.latest();
 }
 
 }  // namespace mr

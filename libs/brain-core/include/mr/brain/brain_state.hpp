@@ -2,6 +2,9 @@
 
 #include "mr/brain/brain_snapshot.hpp"
 #include "mr/brain/brain_context.hpp"
+#include "mr/prediction_engine/prediction.hpp"
+#include "mr/decision/opportunity.hpp"
+#include "mr/decision/trade_action.hpp"
 
 namespace mr {
 
@@ -11,7 +14,7 @@ namespace mr {
  */
 class BrainState {
 public:
-    /** Quote-path update — preserves structure/regime/micro authority. */
+    /** Quote-path update — preserves structure/regime/micro/prediction/decision authority. */
     void update(const BrainContext& ctx);
 
     /** Capital CLOSED 1m+ — mutates structure/regime; preserves micro. */
@@ -24,6 +27,17 @@ public:
     void apply_micro(InstrumentId instrument,
                      const MicrostructureFeatures& micro,
                      Timestamp ts);
+
+    /** Prediction snapshot into the same BrainState (not an order). */
+    void apply_prediction(InstrumentId instrument,
+                          const DualPrediction& prediction,
+                          Timestamp ts);
+
+    /** DecisionEngine choice snapshot — sole BUY/SELL/WAIT record. */
+    void apply_decision(InstrumentId instrument,
+                        const Opportunity& decision,
+                        TradeAction action,
+                        Timestamp ts);
 
     [[nodiscard]] const BrainSnapshot& latest() const { return snapshot_; }
 

@@ -1,5 +1,10 @@
-add_library(mr_decision_engine STATIC src/decision_engine.cpp)
+add_library(mr_decision_engine STATIC
+  src/decision_engine.cpp
+  src/decision_weight_config.cpp)
 add_library(mr::decision-engine ALIAS mr_decision_engine)
 target_include_directories(mr_decision_engine PUBLIC include)
-target_link_libraries(mr_decision_engine PUBLIC mr::prediction-engine mr::market-types)
+target_link_libraries(mr_decision_engine PUBLIC
+  mr::prediction-engine
+  mr::market-types
+  mr::common)
 target_compile_features(mr_decision_engine PUBLIC cxx_std_20)

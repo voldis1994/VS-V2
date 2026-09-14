@@ -102,18 +102,22 @@ void MarketCorePipeline::run_decision_and_risk(const StructureFeatures& st,
         return;
     }
 
-    auto rg = concepts_.evaluate(pd, st);
-    auto scens = scenarios_.evaluate(st, rg, micro_.snapshot());
-    if (scens.empty()) return;
+    // Stage 5: prediction from structure + CLOSED 10s micro (concepts are context, not triggers).
+    const auto micro_snap = micro_.snapshot();
+    auto dual = prediction_.evaluate(st, structure_.has_authority(), micro_snap, pd);
+    brain_.apply_prediction(instrument, dual, /*ts*/ Timestamp{});
 
-    // LONG + SHORT + WAIT — never hardcode Long.
-    auto sides = decision_.evaluate_long_short_wait(scens[0], prediction_, pd, consensus.spread);
+    // DecisionEngine is the sole BUY/SELL/WAIT source — relative LONG vs SHORT EV.
+    auto sides = decision_.evaluate(dual, consensus.spread, instrument);
+    brain_.apply_decision(instrument, sides.chosen, sides.final_action, Timestamp{});
+
     Quote q;
     q.instrument = instrument;
     q.spread.bid = consensus.mid - consensus.spread / 2.0;
     q.spread.ask = consensus.mid + consensus.spread / 2.0;
     q.valid = consensus.valid() || consensus.mid > 0;
 
+    // RAW quote = execution/safety only inside decide().
     auto intent = decision_.decide(sides.chosen, q);
     if (intent.decision != EntryDecision::EntryReady) {
         telemetry_.record_decision();

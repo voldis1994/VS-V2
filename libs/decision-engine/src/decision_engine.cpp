@@ -1,74 +1,170 @@
 #include "mr/decision/decision_engine.hpp"
 #include "mr/common/clock.hpp"
+#include <algorithm>
+#include <cmath>
 
 namespace mr {
+namespace {
 
-double DecisionEngine::compute_ev(double prob, double win, double loss, double cost) const {
-    return prob * win - (1.0 - prob) * loss - cost;
+double clamp01(double v) { return std::clamp(v, 0.0, 1.0); }
+
+double soft01(double raw, double scale) {
+    const double x = std::max(0.0, raw);
+    if (scale <= 1e-15) return clamp01(x);
+    return clamp01(1.0 - std::exp(-x / scale));
 }
 
-Opportunity DecisionEngine::evaluate_opportunity(const Scenario& sc, const Prediction& pred,
-                                                 double spread_cost, Direction dir) {
+}  // namespace
+
+DecisionEngine::DecisionEngine(IdGenerator& ids, DecisionWeightConfig cfg)
+    : ids_(ids), cfg_(std::move(cfg)) {}
+
+void DecisionEngine::set_weight_config(DecisionWeightConfig cfg) { cfg_ = std::move(cfg); }
+
+Opportunity DecisionEngine::from_side(const SidePrediction& side,
+                                      double spread_cost,
+                                      InstrumentId instrument) const {
     Opportunity o;
-    o.direction = dir;
-    o.probability = pred.probability;
+    o.instrument = instrument;
+    o.direction = side.direction;
+    o.probability = side.probability;
     o.spread_cost = spread_cost;
-    o.expected_value = compute_ev(pred.probability, pred.expected_mfe, pred.expected_mae, spread_cost);
-    if (o.expected_value > spread_cost && pred.probability > 0.55) {
-        o.action = dir == Direction::Long ? TradeAction::Buy : TradeAction::Sell;
-    } else {
-        o.action = TradeAction::Wait;
-        o.reason_codes.push_back("LOW_EV");
-    }
-    if (sc.confidence < 0.3) {
-        o.action = TradeAction::Wait;
-        o.reason_codes.push_back("LOW_SCENARIO_CONF");
-    }
+    const double cost = std::max(0.0, spread_cost) * cfg_.cost_scale;
+    o.expected_value = side.expected_value - cost;
+    o.action = TradeAction::Wait;
     return o;
+}
+
+SideEvaluation DecisionEngine::evaluate(const DualPrediction& dual,
+                                        double spread_cost,
+                                        InstrumentId instrument) const {
+    SideEvaluation eval;
+    eval.long_opp = from_side(dual.long_side, spread_cost, instrument);
+    eval.short_opp = from_side(dual.short_side, spread_cost, instrument);
+
+    const double net_l = eval.long_opp.expected_value;
+    const double net_s = eval.short_opp.expected_value;
+    const double edge_l = net_l - net_s;  // >0 favors LONG
+    const double edge_s = -edge_l;
+
+    const double ql = dual.long_side.thesis_quality;
+    const double qs = dual.short_side.thesis_quality;
+    const double cont_l = dual.long_side.continuation;
+    const double cont_s = dual.short_side.continuation;
+
+    // Authority / evidence isolation → WAIT (not a confidence threshold).
+    if (!dual.evidence_sufficient || !dual.has_structure_authority || !dual.has_micro_authority) {
+        eval.wait_score = 1.0;
+        eval.buy_score = 0.0;
+        eval.sell_score = 0.0;
+        eval.chosen = net_l >= net_s ? eval.long_opp : eval.short_opp;
+        eval.chosen.action = TradeAction::Wait;
+        eval.chosen.direction = Direction::Flat;
+        eval.chosen.reason_codes.push_back("INSUFFICIENT_EVIDENCE_WAIT");
+        eval.final_action = TradeAction::Wait;
+        return eval;
+    }
+
+    // Relative EV clarity — Stage-8 calibrates edge_scale; no absolute BUY cutoffs.
+    const double edge_clarity = soft01(std::abs(edge_l), cfg_.edge_scale);
+
+    // BUY/SELL from relative EV dominance × side thesis (single soft map).
+    const double long_mass =
+        std::max(0.0, edge_l) * (0.35 + 0.65 * ql) * (0.35 + 0.65 * cont_l);
+    const double short_mass =
+        std::max(0.0, edge_s) * (0.35 + 0.65 * qs) * (0.35 + 0.65 * cont_s);
+    eval.buy_score = soft01(long_mass, cfg_.edge_scale);
+    eval.sell_score = soft01(short_mass, cfg_.edge_scale);
+
+    // Conflict: both theses meaningful while relative edge is unclear.
+    const double conflict_raw = std::min(ql, qs) * (1.0 - edge_clarity);
+    // Weakness: low best thesis and/or both net EVs non-positive.
+    const double both_weak_ev = (net_l <= 0.0 && net_s <= 0.0) ? 1.0 : 0.0;
+    const double weak_raw = (1.0 - std::max(ql, qs)) * 0.5 + both_weak_ev;
+
+    // Wait pressure shrinks as one side's relative EV becomes clear.
+    eval.wait_score = (soft01(conflict_raw, cfg_.conflict_scale)
+                       + soft01(weak_raw, cfg_.weakness_scale))
+                      * (1.0 - edge_clarity);
+
+    if (eval.wait_score >= eval.buy_score && eval.wait_score >= eval.sell_score) {
+        eval.chosen = net_l >= net_s ? eval.long_opp : eval.short_opp;
+        eval.chosen.action = TradeAction::Wait;
+        eval.chosen.direction = Direction::Flat;
+        if (conflict_raw >= weak_raw) {
+            eval.chosen.reason_codes.push_back("CONFLICTING_EVIDENCE_WAIT");
+        } else {
+            eval.chosen.reason_codes.push_back("WEAK_EVIDENCE_WAIT");
+        }
+        eval.final_action = TradeAction::Wait;
+        return eval;
+    }
+
+    if (eval.buy_score > eval.sell_score) {
+        eval.chosen = eval.long_opp;
+        eval.chosen.action = TradeAction::Buy;
+        eval.chosen.direction = Direction::Long;
+        eval.final_action = TradeAction::Buy;
+    } else if (eval.sell_score > eval.buy_score) {
+        eval.chosen = eval.short_opp;
+        eval.chosen.action = TradeAction::Sell;
+        eval.chosen.direction = Direction::Short;
+        eval.final_action = TradeAction::Sell;
+    } else {
+        eval.chosen = eval.long_opp;
+        eval.chosen.action = TradeAction::Wait;
+        eval.chosen.direction = Direction::Flat;
+        eval.chosen.reason_codes.push_back("LONG_SHORT_TIE_WAIT");
+        eval.final_action = TradeAction::Wait;
+    }
+    return eval;
 }
 
 SideEvaluation DecisionEngine::evaluate_long_short_wait(const Scenario& sc,
                                                         PredictionEngine& prediction,
                                                         const PriceDynamics& pd,
                                                         double spread_cost) {
-    SideEvaluation eval;
-    auto pred_long = prediction.predict(sc, pd, Direction::Long);
-    auto pred_short = prediction.predict(sc, pd, Direction::Short);
-    eval.long_opp = evaluate_opportunity(sc, pred_long, spread_cost, Direction::Long);
-    eval.short_opp = evaluate_opportunity(sc, pred_short, spread_cost, Direction::Short);
+    // Legacy path: build dual prediction via independent side predicts, then relative choose.
+    DualPrediction dual;
+    dual.has_structure_authority = true;
+    dual.has_micro_authority = true;
+    dual.evidence_sufficient = sc.confidence > 0.0;  // soft presence, not a BUY gate
 
-    const bool long_ok = eval.long_opp.action == TradeAction::Buy;
-    const bool short_ok = eval.short_opp.action == TradeAction::Sell;
+    auto pl = prediction.predict(sc, pd, Direction::Long);
+    auto ps = prediction.predict(sc, pd, Direction::Short);
 
-    if (long_ok && short_ok) {
-        if (eval.long_opp.expected_value > eval.short_opp.expected_value) {
-            eval.chosen = eval.long_opp;
-            eval.final_action = TradeAction::Buy;
-        } else if (eval.short_opp.expected_value > eval.long_opp.expected_value) {
-            eval.chosen = eval.short_opp;
-            eval.final_action = TradeAction::Sell;
-        } else {
-            eval.chosen = eval.long_opp;
-            eval.chosen.action = TradeAction::Wait;
-            eval.chosen.direction = Direction::Flat;
-            eval.chosen.reason_codes.push_back("LONG_SHORT_TIE_WAIT");
-            eval.final_action = TradeAction::Wait;
-        }
-    } else if (long_ok) {
-        eval.chosen = eval.long_opp;
-        eval.final_action = TradeAction::Buy;
-    } else if (short_ok) {
-        eval.chosen = eval.short_opp;
-        eval.final_action = TradeAction::Sell;
-    } else {
-        eval.chosen = eval.long_opp.expected_value >= eval.short_opp.expected_value
-            ? eval.long_opp : eval.short_opp;
-        eval.chosen.action = TradeAction::Wait;
-        eval.chosen.direction = Direction::Flat;
-        eval.chosen.reason_codes.push_back("NO_SIDE_QUALIFIES_WAIT");
-        eval.final_action = TradeAction::Wait;
+    dual.long_side.direction = Direction::Long;
+    dual.long_side.probability = pl.probability;
+    dual.long_side.uncertainty = pl.uncertainty;
+    dual.long_side.expected_move = pl.expected_mfe;
+    dual.long_side.adverse_move = pl.expected_mae;
+    dual.long_side.expected_value =
+        pl.probability * pl.expected_mfe - (1.0 - pl.probability) * pl.expected_mae;
+    dual.long_side.continuation = clamp01(pl.probability);
+    dual.long_side.reversal_failure = clamp01(1.0 - pl.probability);
+    dual.long_side.confidence = clamp01(1.0 - pl.uncertainty);
+    dual.long_side.thesis_quality =
+        clamp01(dual.long_side.confidence * dual.long_side.continuation * sc.confidence);
+
+    dual.short_side.direction = Direction::Short;
+    dual.short_side.probability = ps.probability;
+    dual.short_side.uncertainty = ps.uncertainty;
+    dual.short_side.expected_move = ps.expected_mfe;
+    dual.short_side.adverse_move = ps.expected_mae;
+    dual.short_side.expected_value =
+        ps.probability * ps.expected_mfe - (1.0 - ps.probability) * ps.expected_mae;
+    dual.short_side.continuation = clamp01(ps.probability);
+    dual.short_side.reversal_failure = clamp01(1.0 - ps.probability);
+    dual.short_side.confidence = clamp01(1.0 - ps.uncertainty);
+    dual.short_side.thesis_quality =
+        clamp01(dual.short_side.confidence * dual.short_side.continuation * sc.confidence);
+
+    // Very low scenario confidence ⇒ insufficient evidence (WAIT), not a hardcoded BUY cut.
+    if (sc.confidence <= 0.0) {
+        dual.evidence_sufficient = false;
     }
-    return eval;
+
+    return evaluate(dual, spread_cost);
 }
 
 TradeIntent DecisionEngine::decide(const Opportunity& opp, const Quote& quote, std::uint64_t ttl_ms) {
@@ -80,24 +176,29 @@ TradeIntent DecisionEngine::decide(const Opportunity& opp, const Quote& quote, s
     t.expires_at = Timestamp(t.created_at.count() + static_cast<long long>(ttl_ms) * 1'000'000LL);
     t.probability = opp.probability;
     t.expected_value = opp.expected_value;
+
+    // RAW quote = execution / safety only.
     if (!quote.valid) {
         t.decision = EntryDecision::Reject;
         t.reason_codes.push_back("NO_QUOTE");
+        t.explanation = "Missing quote — execution safety reject";
         return t;
     }
+
     t.reference_price = quote.spread.mid_price();
+
     if (opp.action == TradeAction::Buy) {
         t.decision = EntryDecision::EntryReady;
         t.direction = Direction::Long;
-        t.stop_loss = t.reference_price * 0.998;
-        t.take_profit = t.reference_price * 1.004;
-        t.explanation = "BUY opportunity";
+        t.stop_loss = t.reference_price * (1.0 - 0.002 * cfg_.stop_move_frac);
+        t.take_profit = t.reference_price * (1.0 + 0.004 * cfg_.target_move_frac);
+        t.explanation = "BUY from relative LONG EV dominance";
     } else if (opp.action == TradeAction::Sell) {
         t.decision = EntryDecision::EntryReady;
         t.direction = Direction::Short;
-        t.stop_loss = t.reference_price * 1.002;
-        t.take_profit = t.reference_price * 0.996;
-        t.explanation = "SELL opportunity";
+        t.stop_loss = t.reference_price * (1.0 + 0.002 * cfg_.stop_move_frac);
+        t.take_profit = t.reference_price * (1.0 - 0.004 * cfg_.target_move_frac);
+        t.explanation = "SELL from relative SHORT EV dominance";
     } else {
         t.decision = EntryDecision::NoTrade;
         t.direction = Direction::Flat;

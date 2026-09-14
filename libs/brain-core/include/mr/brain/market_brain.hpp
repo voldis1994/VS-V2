@@ -8,6 +8,9 @@
 #include "mr/structure_engine/structure_features.hpp"
 #include "mr/market_concepts/regime_features.hpp"
 #include "mr/microstructure_engine/microstructure_features.hpp"
+#include "mr/prediction_engine/prediction.hpp"
+#include "mr/decision/opportunity.hpp"
+#include "mr/decision/trade_action.hpp"
 #include "mr/market_types/market_event.hpp"
 #include "mr/market_types/market_clock.hpp"
 #include <unordered_map>
@@ -31,6 +34,17 @@ public:
     void apply_micro_evidence(InstrumentId instrument,
                               const MicrostructureFeatures& micro,
                               Timestamp ts);
+
+    /** Prediction snapshot (not an order) into the sole BrainState. */
+    void apply_prediction(InstrumentId instrument,
+                          const DualPrediction& prediction,
+                          Timestamp ts);
+
+    /** DecisionEngine BUY/SELL/WAIT choice into the sole BrainState. */
+    void apply_decision(InstrumentId instrument,
+                        const Opportunity& decision,
+                        TradeAction action,
+                        Timestamp ts);
 
     [[nodiscard]] BrainSnapshot snapshot() const;
     [[nodiscard]] CandleEngine& candles(InstrumentId inst);

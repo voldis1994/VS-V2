@@ -34,3 +34,14 @@ add_executable(test_microstructure_brain test_microstructure_brain.cpp)
 target_link_libraries(test_microstructure_brain PRIVATE mr::market-core mr::microstructure-engine mr::structure-engine mr::brain-core GTest::gtest GTest::gtest_main)
 add_test(NAME test_microstructure_brain COMMAND test_microstructure_brain)
 
+add_executable(test_prediction_decision_brain test_prediction_decision_brain.cpp)
+target_link_libraries(test_prediction_decision_brain PRIVATE
+  mr::prediction-engine
+  mr::decision-engine
+  mr::structure-engine
+  mr::microstructure-engine
+  mr::brain-core
+  GTest::gtest
+  GTest::gtest_main)
+add_test(NAME test_prediction_decision_brain COMMAND test_prediction_decision_brain)
+
