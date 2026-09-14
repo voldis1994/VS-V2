@@ -61,6 +61,14 @@ public:
      */
     void process_authority_ohlc(const Candle& closed, Timeframe tf);
 
+    /**
+     * CLOSED 10s one-shot microstructure authority path.
+     * Same production path as MarketClockKind::ClosedTenSecond from RAW quotes.
+     * Used by EpisodeReplay to reinject recorded CLOSED 10s candles.
+     * Never updates structure authority.
+     */
+    void process_closed_10s(const Candle& closed, Timestamp ts = {});
+
     /** Fail-closed risk requires real equity; no defaults. */
     void set_account_equity(double equity);
     void clear_account_equity();

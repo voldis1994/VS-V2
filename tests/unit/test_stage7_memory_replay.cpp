@@ -287,3 +287,118 @@ TEST(Stage7MemoryReplay, PipelineRecorderCaptureAndOutcomeMetrics) {
     EXPECT_GE(ep.outcome.mae, 0.0);
     EXPECT_GT(ep.outcome.entry_price, 0.0);
 }
+
+namespace {
+
+TradeEpisode build_closed10s_episode(bool include_closed_10s, const std::string& id) {
+    EpisodeRecorder rec;
+    rec.set_model_id("micro-path-model");
+    rec.set_config_hash("cfg-micro-path");
+    rec.set_weight_hashes(PredictionWeightConfig::defaults(), DecisionWeightConfig::defaults(),
+                          RiskWeightConfig::defaults(), ExecutionWeightConfig::defaults(),
+                          PositionWeightConfig::defaults());
+    rec.begin_episode(id, 1);
+
+    rec.record_raw_quote(make_quote(1, 1'000'000'000, 2000.0, 1));
+
+    // Distinctive CLOSED 10s bar — large bullish body so micro geometry is non-zero.
+    const Candle closed10s = make_candle(1, 1'000'000'000, 2000.0, 2012.0, 1999.0, 2011.0);
+    if (include_closed_10s) {
+        rec.record_closed_10s(closed10s, Timestamp{11'000'000'000}, true);
+    }
+
+    // Authority 1m+ bars drive structure → prediction/decision on production path.
+    for (int i = 0; i < 6; ++i) {
+        const double base = 2000.0 + static_cast<double>(i);
+        const std::int64_t open_ns = 60'000'000'000ll * (i + 1);
+        rec.record_authority_ohlc(
+            make_candle(1, open_ns, base, base + 1.5, base - 0.4, base + 1.0), Timeframe::Minute1,
+            Timestamp{open_ns});
+    }
+
+    rec.seal_episode();
+    return rec.take_episode();
+}
+
+void feed_production_closed10s_path(MarketCorePipeline& pipeline, bool include_closed_10s) {
+    pipeline.set_operating_mode(OperatingMode::Replay);
+    pipeline.set_account_equity(50'000.0);
+    pipeline.process_event(make_quote(1, 1'000'000'000, 2000.0, 1));
+    if (include_closed_10s) {
+        pipeline.process_closed_10s(
+            make_candle(1, 1'000'000'000, 2000.0, 2012.0, 1999.0, 2011.0),
+            Timestamp{11'000'000'000});
+    }
+    for (int i = 0; i < 6; ++i) {
+        const double base = 2000.0 + static_cast<double>(i);
+        const std::int64_t open_ns = 60'000'000'000ll * (i + 1);
+        pipeline.process_authority_ohlc(
+            make_candle(1, open_ns, base, base + 1.5, base - 0.4, base + 1.0), Timeframe::Minute1);
+    }
+}
+
+}  // namespace
+
+TEST(Stage7MemoryReplay, RecordedClosed10sDrivesMicroAndMatchesProduction) {
+    const auto with_10s = build_closed10s_episode(true, "ep-with-10s");
+    const auto without_10s = build_closed10s_episode(false, "ep-no-10s");
+
+    // Replay WITH recorded CLOSED 10s → production micro authority path.
+    EpisodeReplay replay;
+    replay.set_account_equity(50'000.0);
+    const auto replayed = replay.run(with_10s);
+    EXPECT_EQ(replayed.closed_10s_count, 1u);
+    EXPECT_TRUE(replayed.final_micro.has_authority);
+    EXPECT_EQ(replayed.final_micro.closed_10s_count, 1u);
+    EXPECT_GT(replayed.final_micro.body_pct, 0.0);
+    EXPECT_EQ(replayed.final_micro.authority_tf, Timeframe::Second10);
+
+    // Same episode without CLOSED 10s → micro evidence must differ.
+    const auto skipped = replay.run(without_10s);
+    EXPECT_EQ(skipped.closed_10s_count, 0u);
+    EXPECT_FALSE(skipped.final_micro.has_authority);
+    EXPECT_EQ(skipped.final_micro.closed_10s_count, 0u);
+    EXPECT_NE(skipped.final_micro.body_pct, replayed.final_micro.body_pct);
+
+    // Direct production process_closed_10s path must match EpisodeReplay reinject.
+    MarketCorePipeline production;
+    feed_production_closed10s_path(production, true);
+    const auto prod_micro = production.micro().snapshot();
+    const auto prod_brain = production.brain_snapshot();
+
+    EXPECT_EQ(prod_micro.has_authority, replayed.final_micro.has_authority);
+    EXPECT_EQ(prod_micro.closed_10s_count, replayed.final_micro.closed_10s_count);
+    EXPECT_DOUBLE_EQ(prod_micro.body_pct, replayed.final_micro.body_pct);
+    EXPECT_DOUBLE_EQ(prod_micro.upper_wick_pct, replayed.final_micro.upper_wick_pct);
+    EXPECT_DOUBLE_EQ(prod_micro.lower_wick_pct, replayed.final_micro.lower_wick_pct);
+    EXPECT_DOUBLE_EQ(prod_micro.continuation, replayed.final_micro.continuation);
+    EXPECT_DOUBLE_EQ(prod_micro.entry_timing_quality, replayed.final_micro.entry_timing_quality);
+
+    ASSERT_TRUE(prod_brain.instruments.count(1));
+    ASSERT_TRUE(replayed.final_brain.instruments.count(1));
+    const auto& pc = prod_brain.instruments.at(1);
+    const auto& rc = replayed.final_brain.instruments.at(1);
+    EXPECT_TRUE(pc.has_micro_authority);
+    EXPECT_TRUE(rc.has_micro_authority);
+    EXPECT_EQ(pc.has_structure_authority, rc.has_structure_authority);
+    EXPECT_EQ(pc.has_prediction, rc.has_prediction);
+    EXPECT_EQ(pc.has_decision, rc.has_decision);
+    EXPECT_EQ(pc.decision_action, rc.decision_action);
+    EXPECT_DOUBLE_EQ(pc.prediction.long_side.continuation, rc.prediction.long_side.continuation);
+    EXPECT_DOUBLE_EQ(pc.prediction.long_side.expected_value, rc.prediction.long_side.expected_value);
+    EXPECT_DOUBLE_EQ(pc.prediction.short_side.continuation, rc.prediction.short_side.continuation);
+    EXPECT_DOUBLE_EQ(pc.micro.body_pct, rc.micro.body_pct);
+    EXPECT_EQ(pc.micro.closed_10s_count, rc.micro.closed_10s_count);
+
+    // Deterministic: two replays of the same recorded stream restore the same brain.
+    const auto replayed_b = replay.run(with_10s);
+    ASSERT_TRUE(replayed_b.final_brain.instruments.count(1));
+    const auto& rb = replayed_b.final_brain.instruments.at(1);
+    EXPECT_EQ(rc.has_prediction, rb.has_prediction);
+    EXPECT_EQ(rc.has_decision, rb.has_decision);
+    EXPECT_EQ(rc.decision_action, rb.decision_action);
+    EXPECT_DOUBLE_EQ(rc.prediction.long_side.continuation, rb.prediction.long_side.continuation);
+    EXPECT_DOUBLE_EQ(rc.prediction.long_side.expected_value, rb.prediction.long_side.expected_value);
+    EXPECT_DOUBLE_EQ(rc.micro.body_pct, rb.micro.body_pct);
+    EXPECT_DOUBLE_EQ(replayed.final_micro.continuation, replayed_b.final_micro.continuation);
+}

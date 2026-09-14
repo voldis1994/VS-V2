@@ -33,9 +33,10 @@ EpisodeReplay::Result EpisodeReplay::run(const TradeEpisode& episode) {
                 break;
             case EpisodeClockDomain::ClosedTenSecond:
                 ++out.closed_10s_count;
-                // CLOSED 10s remains a distinct clock domain in the episode record.
-                // Production pipeline derives CLOSED 10s from RAW quotes via candle engine;
-                // we preserve domain ordering here without collapsing clocks.
+                // Reinject recorded CLOSED 10s into the same production micro path.
+                if (item.candle.has_value()) {
+                    pipeline.process_closed_10s(*item.candle, item.ts);
+                }
                 break;
             case EpisodeClockDomain::AuthorityOhlc:
                 ++out.authority_count;
@@ -47,6 +48,7 @@ EpisodeReplay::Result EpisodeReplay::run(const TradeEpisode& episode) {
     }
 
     out.final_brain = pipeline.brain_snapshot();
+    out.final_micro = pipeline.micro().snapshot();
     out.open_positions = pipeline.open_positions();
     out.pending_intents = pipeline.pending_intents();
     return out;

@@ -74,6 +74,18 @@ void MarketCorePipeline::process_event(const MarketEvent& event) {
     }
 }
 
+void MarketCorePipeline::process_closed_10s(const Candle& closed, Timestamp ts) {
+    const Timestamp at = ts.count() > 0 ? ts : closed.open_time;
+    if (recorder_ != nullptr && recorder_->active()) {
+        recorder_->record_closed_10s(closed, at, /*one_shot=*/true);
+    }
+    // CLOSED 10s one-shot — microstructure authority only (never structure).
+    micro_.on_closed_10s(closed);
+    const InstrumentId instrument =
+        closed.instrument != kInvalidInstrument ? closed.instrument : 1;
+    brain_.apply_micro_evidence(instrument, micro_.snapshot(), at);
+}
+
 void MarketCorePipeline::process_authority_ohlc(const Candle& closed, Timeframe tf) {
     if (recorder_ != nullptr && recorder_->active()) {
         recorder_->record_authority_ohlc(closed, tf, closed.open_time);
@@ -111,6 +123,10 @@ void MarketCorePipeline::handle_clock_events(const std::vector<MarketClockEvent>
                 break;
             case MarketClockKind::ClosedTenSecond:
                 if (!ev.one_shot || !ev.candle.has_value()) break;
+                // Same production path as process_closed_10s() (replay reinject).
+                if (recorder_ != nullptr && recorder_->active()) {
+                    recorder_->record_closed_10s(*ev.candle, ev.ts, /*one_shot=*/true);
+                }
                 micro_.on_closed_10s(*ev.candle);
                 brain_.apply_micro_evidence(instrument, micro_.snapshot(), ev.ts);
                 break;

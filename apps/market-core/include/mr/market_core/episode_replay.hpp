@@ -2,6 +2,7 @@
 
 #include "mr/memory_engine/episode_types.hpp"
 #include "mr/market_core/pipeline.hpp"
+#include "mr/microstructure_engine/microstructure_features.hpp"
 #include "mr/replay/paper_order_gateway.hpp"
 
 #include <vector>
@@ -10,13 +11,18 @@ namespace mr {
 
 /**
  * Replays a TradeEpisode market stream into the production MarketCorePipeline
- * in correct multi-clock order. Never binds Capital LIVE — paper only.
+ * in correct multi-clock order:
+ *   RAW → process_event (quote path)
+ *   CLOSED 10s → process_closed_10s (one-shot micro authority)
+ *   1m+ → process_authority_ohlc (structure authority)
+ * Never binds Capital LIVE — paper only.
  */
 class EpisodeReplay {
 public:
     struct Result {
         std::vector<EpisodeClockDomain> clock_order;
         BrainSnapshot final_brain{};
+        MicrostructureFeatures final_micro{};
         std::vector<PositionState> open_positions;
         std::vector<TradeIntent> pending_intents;
         std::size_t raw_count{0};
