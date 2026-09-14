@@ -14,7 +14,7 @@ std::vector<MarketClockEvent> MarketBrain::on_normalized(const NormalizedEvent& 
     ctx.consensus = consensus;
     ctx.candles = ce.state();
     ctx.ts = e.normalized_timestamp;
-    // has_structure_authority stays false — update() preserves prior structure.
+    // Authority flags stay false — update() preserves prior structure + micro.
     state_.update(ctx);
 
     BrainEvent quote_ev;
@@ -54,6 +54,19 @@ void MarketBrain::apply_authority_structure(InstrumentId instrument,
     closed.ts = ts;
     closed.instrument = instrument;
     closed.payload = "STRUCTURE_AUTHORITY";
+    router_.publish(closed);
+}
+
+void MarketBrain::apply_micro_evidence(InstrumentId instrument,
+                                       const MicrostructureFeatures& micro,
+                                       Timestamp ts) {
+    state_.apply_micro(instrument, micro, ts);
+
+    BrainEvent closed;
+    closed.type = BrainEventType::CandleClosed;
+    closed.ts = ts;
+    closed.instrument = instrument;
+    closed.payload = "MICRO_10S_AUTHORITY";
     router_.publish(closed);
 }
 

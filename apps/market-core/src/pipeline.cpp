@@ -72,8 +72,11 @@ void MarketCorePipeline::handle_clock_events(const std::vector<MarketClockEvent>
                 // Forming is observable state only — no structure, no decision.
                 break;
             case MarketClockKind::ClosedTenSecond:
-                // One-shot 10s close: micro/timing domain only — NOT structure authority.
-                if (!ev.one_shot) break;
+                // One-shot CLOSED 10s: microstructure evidence authority only.
+                // Must never rewrite 1m+ broad structure.
+                if (!ev.one_shot || !ev.candle.has_value()) break;
+                micro_.on_closed_10s(*ev.candle);
+                brain_.apply_micro_evidence(instrument, micro_.snapshot(), ev.ts);
                 break;
             case MarketClockKind::ClosedOneMinute:
             case MarketClockKind::ClosedHigherTimeframe:

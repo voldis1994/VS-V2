@@ -7,6 +7,7 @@
 #include "mr/feed_fusion/feed_fusion_engine.hpp"
 #include "mr/structure_engine/structure_features.hpp"
 #include "mr/market_concepts/regime_features.hpp"
+#include "mr/microstructure_engine/microstructure_features.hpp"
 #include "mr/market_types/market_event.hpp"
 #include "mr/market_types/market_clock.hpp"
 #include <unordered_map>
@@ -25,6 +26,11 @@ public:
                                    const StructureFeatures& structure,
                                    const RegimeFeatures& regime,
                                    Timestamp ts);
+
+    /** CLOSED 10s one-shot — mutates micro evidence; never rewrites structure. */
+    void apply_micro_evidence(InstrumentId instrument,
+                              const MicrostructureFeatures& micro,
+                              Timestamp ts);
 
     [[nodiscard]] BrainSnapshot snapshot() const;
     [[nodiscard]] CandleEngine& candles(InstrumentId inst);

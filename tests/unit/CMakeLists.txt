@@ -29,3 +29,8 @@ add_test(NAME test_stage2_runtime COMMAND test_stage2_runtime)
 add_executable(test_structure_brain test_structure_brain.cpp)
 target_link_libraries(test_structure_brain PRIVATE mr::market-core mr::structure-engine mr::market-concepts GTest::gtest GTest::gtest_main)
 add_test(NAME test_structure_brain COMMAND test_structure_brain)
+
+add_executable(test_microstructure_brain test_microstructure_brain.cpp)
+target_link_libraries(test_microstructure_brain PRIVATE mr::market-core mr::microstructure-engine mr::structure-engine mr::brain-core GTest::gtest GTest::gtest_main)
+add_test(NAME test_microstructure_brain COMMAND test_microstructure_brain)
+

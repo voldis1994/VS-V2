@@ -7,5 +7,6 @@ target_link_libraries(mr_brain_core PUBLIC
     mr::candle-engine
     mr::feed-fusion
     mr::structure-engine
-    mr::market-concepts)
+    mr::market-concepts
+    mr::microstructure-engine)
 target_compile_features(mr_brain_core PUBLIC cxx_std_20)
