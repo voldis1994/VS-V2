@@ -62,3 +62,7 @@ coverage/
 *.pem
 *.key
 credentials.json
+
+__pycache__/
+*.pyc
+
