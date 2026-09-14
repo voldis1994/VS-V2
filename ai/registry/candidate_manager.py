@@ -1,5 +1,7 @@
 from __future__ import annotations
-from .model_registry import ModelRegistry
+
+from ai.registry.model_registry import ModelRegistry
+
 
 class CandidateManager:
     def __init__(self, registry: ModelRegistry):
