@@ -9,6 +9,7 @@
 #include "mr/brain/brain_state.hpp"
 #include "mr/decision/trade_decision.hpp"
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -222,6 +223,65 @@ TEST(ExecutionEngineStage6, RejectRetryThenFill) {
     EXPECT_EQ(rep.status, ExecutionStatus::Filled);
     EXPECT_EQ(rep.attempts, 3u);
     EXPECT_EQ(gw.create_calls.size(), 3u);
+}
+
+
+TEST(ExecutionEngineStage10, RetryBackoffPacingReusesClientOrderIdNoDuplicate) {
+    MockGateway gw;
+    gw.fail_times_ = 2;
+    ExecutionWeightConfig cfg;
+    cfg.max_attempts = 3;
+    cfg.backoff_ms = 25;  // small but measurable LIVE pacing
+    cfg.dedup_window_ms = 5'000;
+    ExecutionEngine exec(gw, cfg);
+
+    const auto intent = ready_long_intent();
+    const auto t0 = std::chrono::steady_clock::now();
+    auto rep = exec.submit(intent, 1.0);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0)
+                                .count();
+
+    EXPECT_EQ(rep.status, ExecutionStatus::Filled);
+    EXPECT_EQ(rep.attempts, 3u);
+    ASSERT_EQ(gw.create_calls.size(), 3u);
+
+    // Two backoff sleeps between three attempts (>= 2 * backoff_ms).
+    EXPECT_GE(elapsed_ms, static_cast<long long>(2 * cfg.backoff_ms));
+
+    // Same idempotency key on every retry — no alternate/duplicate order identity.
+    const std::string key = gw.create_calls.front().client_order_id;
+    EXPECT_FALSE(key.empty());
+    for (const auto& req : gw.create_calls) {
+        EXPECT_EQ(req.client_order_id, key);
+    }
+
+    // Successful fill registers dedup — a second submit of same intent is suppressed.
+    auto dup = exec.submit(intent, 1.0);
+    EXPECT_EQ(dup.status, ExecutionStatus::Rejected);
+    ASSERT_FALSE(dup.reason_codes.empty());
+    EXPECT_EQ(dup.reason_codes.front(), "DUPLICATE_ORDER");
+    EXPECT_EQ(gw.create_calls.size(), 3u);  // no extra create after fill
+}
+
+TEST(ExecutionEngineStage10, ZeroBackoffKeepsPaperReplayDeterministic) {
+    MockGateway gw;
+    gw.fail_times_ = 2;
+    ExecutionWeightConfig cfg;
+    cfg.max_attempts = 3;
+    cfg.backoff_ms = 0;  // PAPER/REPLAY/tests — no sleep
+    ExecutionEngine exec(gw, cfg);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    auto rep = exec.submit(ready_long_intent(), 1.0);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0)
+                                .count();
+
+    EXPECT_EQ(rep.status, ExecutionStatus::Filled);
+    EXPECT_EQ(rep.attempts, 3u);
+    EXPECT_EQ(gw.create_calls.size(), 3u);
+    EXPECT_LT(elapsed_ms, 20);  // must remain effectively pause-free
 }
 
 TEST(ExecutionEngineStage6, DuplicateAndHardReject) {

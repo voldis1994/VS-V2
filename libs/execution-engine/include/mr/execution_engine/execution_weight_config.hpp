@@ -9,7 +9,7 @@ namespace mr {
  */
 struct ExecutionWeightConfig {
     std::uint32_t max_attempts{3};
-    std::uint64_t backoff_ms{0};       // 0 = deterministic no-sleep (tests)
+    std::uint64_t backoff_ms{0};       // 0 = no sleep (PAPER/REPLAY/tests); LIVE sets >0
     std::uint64_t dedup_window_ms{2000};
     bool require_positive_quantity{true};
 

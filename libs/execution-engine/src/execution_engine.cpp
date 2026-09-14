@@ -1,6 +1,8 @@
 #include "mr/execution_engine/execution_engine.hpp"
 #include "mr/common/clock.hpp"
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 namespace mr {
 
@@ -78,7 +80,10 @@ ExecutionReport ExecutionEngine::submit(const TradeIntent& intent, double quanti
             rep.explanation = "filled";
             return rep;
         }
-        (void)cfg_.backoff_ms;  // reserved for live runtime pacing
+        // LIVE pacing only — PAPER/REPLAY/tests keep backoff_ms=0 (no sleep).
+        if (cfg_.backoff_ms > 0 && i + 1 < attempts) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(cfg_.backoff_ms));
+        }
     }
 
     rep.status = ExecutionStatus::Rejected;
