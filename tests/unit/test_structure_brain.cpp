@@ -234,10 +234,14 @@ TEST(StructureBrain, RegimeIsContextNotTrigger) {
     feed(eng, Timeframe::Minute1, uptrend_bars());
     PriceDynamics pd;
     auto rg = concepts.evaluate(pd, eng.snapshot());
-    EXPECT_TRUE(rg.current == Regime::TrendUp || rg.current == Regime::PullbackUptrend
-                || rg.current == Regime::Expansion || rg.current == Regime::BreakoutUp);
-    // Regimes are classifiers — presence does not imply EntryReady.
+    // Multi-concept scores always exist; dominant is descriptive argmax only.
+    EXPECT_EQ(rg.scores.size(), kConceptCount);
+    EXPECT_GT(rg.score(Regime::TrendUp) + rg.score(Regime::PullbackUptrend)
+                  + rg.score(Regime::Expansion) + rg.score(Regime::BreakoutUp),
+              0.0);
+    // Concepts are classifiers — presence does not imply EntryReady / BUY/SELL.
     EXPECT_NE(regime_name(rg.current), nullptr);
+    EXPECT_NE(regime_name(rg.dominant), nullptr);
 }
 
 TEST(StructureBrain, AuthorityOnlyMutationViaPipelineAndBrainState) {
@@ -311,4 +315,106 @@ TEST(StructureBrain, FourteenRegimesAreNamedContextConcepts) {
     for (Regime r : all) {
         EXPECT_STRNE(regime_name(r), "");
     }
+}
+
+TEST(MarketConcepts, MultipleConceptsCanCoexist) {
+    // Uptrend structure with pullback depth + compression mass → several scores > 0.
+    StructureFeatures st;
+    st.trend_direction = TrendBias::Up;
+    st.trend_strength = 0.8;
+    st.swing_state = 1.0;
+    st.pullback_depth = 0.55;
+    st.in_pullback = true;
+    st.compression = 0.7;
+    st.in_range = false;
+    st.expansion = 0.15;
+    st.continuation_pressure = 0.4;
+    st.structure_quality = 0.7;
+    st.volatility = 0.01;
+
+    MarketConceptsEngine concepts;
+    PriceDynamics pd;
+    const auto rg = concepts.evaluate(pd, st);
+
+    int active = 0;
+    for (double s : rg.scores) {
+        if (s > 0.0) ++active;
+    }
+    EXPECT_GT(active, 1);
+    // Trend + pullback (+ possibly compression) coexist — not exclusive FSM.
+    EXPECT_GT(rg.score(Regime::TrendUp), 0.0);
+    EXPECT_GT(rg.score(Regime::PullbackUptrend), 0.0);
+    EXPECT_GT(rg.score(Regime::Compression), 0.0);
+}
+
+TEST(MarketConcepts, NoHardcodedTriggerThresholdsGateConcepts) {
+    // Continuous structure change → continuous score change (no cliff at 0.25/0.5).
+    MarketConceptsEngine concepts;
+    PriceDynamics pd;
+
+    StructureFeatures weak;
+    weak.trend_direction = TrendBias::Up;
+    weak.trend_strength = 0.10;
+    weak.swing_state = 0.2;
+    weak.structure_quality = 0.5;
+
+    StructureFeatures mid = weak;
+    mid.trend_strength = 0.40;
+    mid.swing_state = 0.6;
+
+    StructureFeatures strong = weak;
+    strong.trend_strength = 0.90;
+    strong.swing_state = 1.0;
+
+    const double s_weak = concepts.evaluate(pd, weak).score(Regime::TrendUp);
+    const double s_mid = concepts.evaluate(pd, mid).score(Regime::TrendUp);
+    const double s_strong = concepts.evaluate(pd, strong).score(Regime::TrendUp);
+
+    EXPECT_GT(s_weak, 0.0);
+    EXPECT_GT(s_mid, s_weak);
+    EXPECT_GT(s_strong, s_mid);
+
+    // Injected Stage-8-ready weights still produce multi-scores (not a trigger gate).
+    auto cfg = ConceptWeightConfig::defaults();
+    cfg.feature_scales[3] = 1.5;  // amplify trend_strength dim
+    MarketConceptsEngine calibrated(cfg);
+    const auto rg = calibrated.evaluate(pd, strong);
+    EXPECT_EQ(rg.scores.size(), kConceptCount);
+    EXPECT_GT(rg.score(Regime::TrendUp), 0.0);
+}
+
+TEST(MarketConcepts, SimilarityUsesNormalizedStructureNotExclusiveState) {
+    MarketConceptsEngine concepts;
+    PriceDynamics pd;
+
+    StructureFeatures a;
+    a.trend_direction = TrendBias::Up;
+    a.trend_strength = 0.7;
+    a.swing_state = 1.0;
+    a.breakout_up = true;
+    a.breakout_strength = 0.6;
+    a.expansion = 0.5;
+
+    StructureFeatures b = a;
+    b.failed_breakout_up = true;
+    b.failed_breakout = 0.8;
+    b.breakout_up = false;
+    b.reversal_candidate = 0.6;
+    b.structural_invalidation = 0.4;
+
+    const auto ra = concepts.evaluate(pd, a);
+    const auto rb = concepts.evaluate(pd, b);
+
+    // Both snapshots expose the full concept vector.
+    EXPECT_EQ(ra.scores.size(), 14u);
+    EXPECT_EQ(rb.scores.size(), 14u);
+    EXPECT_GT(ra.score(Regime::BreakoutUp), 0.0);
+    EXPECT_GT(rb.score(Regime::FailedBreakoutUp), 0.0);
+    // Prior dominant does not lock / zero other concepts on the next evaluate.
+    EXPECT_GT(rb.score(Regime::TrendUp), 0.0);
+    EXPECT_GT(rb.score(Regime::ReversalCandidate), 0.0);
+
+    RegimeSimilarity sim;
+    // Distinct structure → score vectors are not identical.
+    EXPECT_LT(sim.compare(ra, rb), 1.0);
 }

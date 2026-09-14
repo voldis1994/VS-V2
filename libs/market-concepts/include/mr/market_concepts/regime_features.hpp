@@ -1,12 +1,17 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace mr {
 
+/** Simultaneous market concepts (descriptive context — never trade triggers). */
+inline constexpr std::size_t kConceptCount = 14;
+
 /**
- * 14 market-concept regimes (context classifiers — NOT BUY/SELL triggers).
- * Matches Capital CLOSED structure brain vocabulary.
+ * 14 market concepts. Multiple may be active via continuous similarity scores.
+ * These describe structure context — they are NOT BUY/SELL triggers.
  */
 enum class Regime : std::uint8_t {
     Unknown = 0,
@@ -25,12 +30,32 @@ enum class Regime : std::uint8_t {
     Transition = 13
 };
 
+inline constexpr std::size_t concept_index(Regime r) noexcept {
+    return static_cast<std::size_t>(r);
+}
+
+/**
+ * Multi-concept market description.
+ * `scores` — simultaneous similarity of each concept to normalized structure.
+ * `current` / `dominant` — argmax for backward-compatible readers (not exclusive lock).
+ * Raw StructureFeatures remain the primary truth.
+ */
 struct RegimeFeatures {
-    Regime current{Regime::Unknown};
-    Regime previous{Regime::Unknown};
-    double confidence{0};
+    std::array<double, kConceptCount> scores{};
+    Regime dominant{Regime::Unknown};
+    Regime previous_dominant{Regime::Unknown};
     double volatility{0};
     double trend_strength{0};
+    /** Score of dominant concept (descriptive magnitude, not trade confidence). */
+    double confidence{0};
+
+    /** Legacy aliases for existing consumers. */
+    Regime current{Regime::Unknown};
+    Regime previous{Regime::Unknown};
+
+    [[nodiscard]] double score(Regime r) const noexcept {
+        return scores[concept_index(r)];
+    }
 };
 
 inline const char* regime_name(Regime r) {

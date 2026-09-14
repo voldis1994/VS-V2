@@ -36,10 +36,13 @@ PositionDecision PositionBrain::evaluate(PositionState& pos, const PriceDynamics
         d.action = PositionAction::Protect; d.reason = ExitReason::PeakProtection; d.reason_codes.push_back("PEAK_PROTECT");
         return d;
     }
-    if (pos.direction == Direction::Long && pd.velocity < 0 && rg.current == Regime::TrendDown) {
+    // Multi-concept context (descriptive scores — not entry triggers).
+    if (pos.direction == Direction::Long && pd.velocity < 0
+        && rg.score(Regime::TrendDown) >= rg.score(Regime::TrendUp)) {
         d.action = PositionAction::ExitNow; d.reason = ExitReason::ThesisFailure; return d;
     }
-    if (pos.direction == Direction::Short && pd.velocity > 0 && rg.current == Regime::TrendUp) {
+    if (pos.direction == Direction::Short && pd.velocity > 0
+        && rg.score(Regime::TrendUp) >= rg.score(Regime::TrendDown)) {
         d.action = PositionAction::ExitNow; d.reason = ExitReason::ThesisFailure; return d;
     }
     if (pos.mfe > 0 && pos.current_pnl >= pos.mfe * 0.9) {
