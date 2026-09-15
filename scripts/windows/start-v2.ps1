@@ -198,6 +198,17 @@ if (-not (Test-Path -LiteralPath $distJs)) {
         try {
             & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
             if ($LASTEXITCODE -ne 0) { throw "tsc failed for control-api (exit $LASTEXITCODE)" }
+            # tsc does not copy *.sql - migrations must land in dist/db/migrations
+            $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
+            if (Test-Path -LiteralPath $copyJs) {
+                & $nodeExe $copyJs
+                if ($LASTEXITCODE -ne 0) { throw 'copy-migrations.mjs failed' }
+            } else {
+                $srcMig = Join-Path $apiPkg 'src\db\migrations'
+                $dstMig = Join-Path $apiPkg 'dist\db\migrations'
+                New-Item -ItemType Directory -Force -Path $dstMig | Out-Null
+                Copy-Item -Path (Join-Path $srcMig '*') -Destination $dstMig -Force
+            }
         } finally { Pop-Location }
     }
     if (-not (Test-Path -LiteralPath $distJs) -and -not $DryRun) {
@@ -216,6 +227,19 @@ $apiExtra = @{
 if (Test-Path -LiteralPath $envPaper) {
     $apiExtra['DOTENV_CONFIG_PATH'] = $envPaper
 }
+# Ensure SQL migrations exist under dist (tsc never copies *.sql).
+$migDist = Join-Path $Root 'apps\control-api\dist\db\migrations'
+$migSrc = Join-Path $Root 'apps\control-api\src\db\migrations'
+if (-not $DryRun -and (Test-Path -LiteralPath $migSrc)) {
+    if (-not (Test-Path -LiteralPath $migDist) -or -not (Get-ChildItem -LiteralPath $migDist -Filter '*.sql' -ErrorAction SilentlyContinue)) {
+        Write-Warn 'control-api dist migrations missing - copying src\\db\\migrations -> dist\\db\\migrations'
+        New-Item -ItemType Directory -Force -Path $migDist | Out-Null
+        Copy-Item -Path (Join-Path $migSrc '*') -Destination $migDist -Force
+    }
+    $sqlCount = @(Get-ChildItem -LiteralPath $migDist -Filter '*.sql' -ErrorAction SilentlyContinue).Count
+    Write-Ok "control-api migrations ready ($sqlCount sql files in dist\\db\\migrations)"
+}
+
 Write-Ok "control-api via node.exe (not npm): $nodeExe"
 Write-Host "  entry: $distJs"
 if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$envPaper" }

@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node ./scripts/copy-migrations.mjs",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "migrate": "tsx src/db/migrate.ts",
+    "copy:migrations": "node ./scripts/copy-migrations.mjs",
     "test": "vitest run"
   },
   "dependencies": {
