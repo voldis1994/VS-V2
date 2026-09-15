@@ -49,7 +49,10 @@ function corsOrigins(): boolean | string | string[] {
   const raw = [process.env.CORS_ORIGIN, process.env.CLIENT_CORS_ORIGIN]
     .filter(Boolean)
     .join(',');
-  if (!raw) return 'http://localhost:5173';
+  if (!raw) {
+    // Dashboard is bound to 127.0.0.1:5173 on Windows; include both forms.
+    return ['http://127.0.0.1:5173', 'http://localhost:5173'];
+  }
   const list = raw
     .split(',')
     .map((s) => s.trim())
@@ -69,7 +72,12 @@ function trustProxyOption(): boolean | string | string[] | number {
     .filter(Boolean);
 }
 
-async function waitForDatabase(maxAttempts = 30, delayMs = 1000): Promise<void> {
+async function waitForDatabase(maxAttempts = 60, delayMs = 1000): Promise<void> {
+  const host = process.env.DB_HOST || '127.0.0.1';
+  const port = process.env.DB_PORT || '5432';
+  const db = process.env.DB_NAME || 'market_reader';
+  const user = process.env.DB_USER || 'market_reader';
+  console.log(`Waiting for Postgres ${user}@${host}:${port}/${db} (up to ${maxAttempts}s)...`);
   let lastErr: unknown;
   for (let i = 1; i <= maxAttempts; i++) {
     try {
@@ -78,11 +86,15 @@ async function waitForDatabase(maxAttempts = 30, delayMs = 1000): Promise<void> 
       return;
     } catch (err) {
       lastErr = err;
-      console.warn(`Database not ready (${i}/${maxAttempts}) - retrying...`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`Database not ready (${i}/${maxAttempts}) ${msg}`);
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
-  throw new Error(`Database unreachable after ${maxAttempts} attempts: ${String(lastErr)}`);
+  throw new Error(
+    `Database unreachable after ${maxAttempts}s at ${user}@${host}:${port}/${db}: ${String(lastErr)}. ` +
+      `Start Docker Desktop, run V2.bat again, and check DB_PASSWORD in .env.paper matches docker compose.`
+  );
 }
 
 async function main() {

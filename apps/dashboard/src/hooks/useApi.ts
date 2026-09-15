@@ -20,8 +20,8 @@ function networkErrorMessage(cause: unknown): string {
   const raw = cause instanceof Error ? cause.message : String(cause || '');
   if (/failed to fetch|networkerror|load failed|econnrefused|network request failed/i.test(raw)) {
     return (
-      'Control API unreachable (:3000). Start V2.bat and check the VS-ControlAPI window ' +
-      '(or logs/control-api.paper.log). Dashboard alone on :5173 is not enough.'
+      'Control API unreachable (:3000). Run Restart-ControlAPI.bat (or V2.bat), keep VS-ControlAPI open, ' +
+      'and ensure Docker Desktop is running. Check logs/control-api.paper.log'
     );
   }
   return raw || 'Network error';

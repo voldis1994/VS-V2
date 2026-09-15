@@ -41,14 +41,34 @@ export function ControlLayout() {
   const [apiDetail, setApiDetail] = useState<string>('');
 
   const probeApi = useCallback(async () => {
+    // Prefer Vite proxy /health; also probe direct :3000 to tell proxy vs process-down apart.
+    let proxyOk = false;
+    let directOk = false;
     try {
       const res = await fetch('/health', { headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`health ${res.status}`);
-      setApiOk(true);
-      setApiDetail('Control API :3000');
+      proxyOk = res.ok;
     } catch {
-      setApiOk(false);
-      setApiDetail('API offline — start V2.bat / VS-ControlAPI');
+      proxyOk = false;
+    }
+    try {
+      const res = await fetch('http://127.0.0.1:3000/health', {
+        headers: { Accept: 'application/json' },
+        mode: 'cors',
+      });
+      directOk = res.ok;
+    } catch {
+      directOk = false;
+    }
+    if (proxyOk) {
+      setApiOk(true);
+      setApiDetail(directOk ? 'Control API :3000' : 'API via proxy (direct CORS ok to ignore)');
+      return;
+    }
+    setApiOk(false);
+    if (directOk) {
+      setApiDetail('API :3000 live but Vite proxy broken — restart VS-Dashboard');
+    } else {
+      setApiDetail('API offline — V2.bat or Restart-ControlAPI.bat');
     }
   }, []);
 
@@ -163,8 +183,19 @@ export function ControlLayout() {
           </header>
           {apiOk === false && (
             <div className="cp-api-banner" role="alert">
-              <strong>Control API nav pieejams.</strong> Palaid <code>V2.bat</code> un atstāj logu{' '}
-              <code>VS-ControlAPI</code> atvērtu. Bez API klientus pievienot nevar.
+              <div>
+                <strong>Control API nav pieejams (:3000).</strong> Bez API klientus pievienot nevar.
+                <div className="cp-muted" style={{ marginTop: '0.35rem' }}>
+                  1) Pārbaudi logu <code>VS-ControlAPI</code> / <code>logs\control-api.paper.log</code>
+                  <br />
+                  2) Palaid <code>Restart-ControlAPI.bat</code> (vai visu <code>V2.bat</code>)
+                  <br />
+                  3) Docker Desktop jābūt ieslēgtam (Postgres)
+                </div>
+              </div>
+              <button type="button" className="cp-btn primary" onClick={() => void probeApi()}>
+                RETRY API
+              </button>
             </div>
           )}
           <div className="cp-body">

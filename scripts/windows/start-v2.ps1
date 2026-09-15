@@ -224,6 +224,15 @@ $apiExtra = @{
     CONTROL_API_HOST       = '0.0.0.0'
     CONTROL_API_PORT       = '3000'
 }
+# Windows: force IPv4 loopback for Docker Postgres (localhost -> ::1 breaks API boot).
+if (-not $env:DB_HOST -or $env:DB_HOST -eq 'localhost') {
+    $apiExtra['DB_HOST'] = '127.0.0.1'
+    $env:DB_HOST = '127.0.0.1'
+}
+if (-not $env:REDIS_HOST -or $env:REDIS_HOST -eq 'localhost') {
+    $apiExtra['REDIS_HOST'] = '127.0.0.1'
+    $env:REDIS_HOST = '127.0.0.1'
+}
 if (Test-Path -LiteralPath $envPaper) {
     $apiExtra['DOTENV_CONFIG_PATH'] = $envPaper
 }
@@ -282,20 +291,21 @@ Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $sysNode `
 Write-Ok 'All service CMD windows launched (Control API + Market Core + Dashboard)'
 
 # Health waits AFTER all windows are open (one-shot UX).
+$apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
 if (-not $DryRun) {
-    $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
     Write-Step 'Waiting for Control API /health (windows already open)'
     Write-Host "  $apiBase/health"
     Write-Host '  Watch the VS-ControlAPI window or logs\control-api.paper.log'
     if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label 'Control API /health')) {
         Write-LogTail -Path $apiLog -Lines 60
-        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail (often DB password mismatch). Fix .env.paper DB_* then re-run V2.bat."
+        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail (often DB password mismatch). Fix .env.paper DB_* then re-run V2.bat or Restart-ControlAPI.bat."
     }
     Write-Ok 'Control API healthy'
     Invoke-PaperPreflight -Root $Root
 }
 
 $dashUrl = Resolve-DashboardUrl
+$controlUrl = ($dashUrl.TrimEnd('/') + '/control')
 if (-not $DryRun) {
     Write-Step 'Waiting for Dashboard'
     if (-not (Wait-HttpOk -Url $dashUrl -Attempts 60 -DelayMs 500 -Label 'Dashboard')) {
@@ -303,13 +313,18 @@ if (-not $DryRun) {
     } else {
         Write-Ok "Dashboard up $dashUrl"
     }
+    # Re-check API after dashboard is up - catch silent crash during race.
+    if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 5 -DelayMs 500 -Label 'Control API recheck' -Quiet)) {
+        Write-LogTail -Path $apiLog -Lines 80
+        throw "Control API died after start. See VS-ControlAPI window / $apiLog. Or run Restart-ControlAPI.bat"
+    }
 }
 
 if (-not $NoBrowser -and -not $DryRun) {
-    Write-Step 'Opening Dashboard in browser'
-    Start-Process $dashUrl
+    Write-Step 'Opening Control Panel in browser'
+    Start-Process $controlUrl
 } elseif ($DryRun) {
-    Write-Host "[dry-run] would open browser $dashUrl"
+    Write-Host "[dry-run] would open browser $controlUrl"
 }
 
 Assert-PaperFailClosed
@@ -323,9 +338,11 @@ Write-Host '============================================================' -Foreg
 Write-Host '  PAPER stack running (started by one V2.bat click)' -ForegroundColor Green
 Write-Host '  CMD windows: VS-ControlAPI | VS-MarketCore | VS-Dashboard' -ForegroundColor Green
 Write-Host "  Dashboard: $dashUrl" -ForegroundColor Green
+Write-Host "  Control Panel: $controlUrl" -ForegroundColor Green
 Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Green
 Write-Host '  Mode: PAPER | Live trading: false | Broker orders: forbidden' -ForegroundColor Green
 Write-Host "  Logs: $logs\*.paper.log" -ForegroundColor Green
 Write-Host '  Keep the 3 service CMD windows open. Close a window to stop that service.' -ForegroundColor Yellow
+Write-Host '  If Clients shows API unreachable: run Restart-ControlAPI.bat' -ForegroundColor Yellow
 Write-Host '============================================================' -ForegroundColor Green
 exit 0
