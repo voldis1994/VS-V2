@@ -95,6 +95,8 @@ def test_install_flow() -> list[str]:
             "Kitware.CMake",
             "Ensure-Vcpkg",
             "Enter-VsDevShell",
+            "call",
+            "Microsoft.VisualStudio.DevShell",
             "x-update-baseline",
             "Get-VcpkgToolchain",
             "Ensure-MsvcBuildTools",

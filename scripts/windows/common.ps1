@@ -243,6 +243,12 @@ function Ensure-MsvcBuildTools {
     if (-not (Test-MsvcAvailable)) {
         throw 'MSVC C++ tools still missing after winget. Install Build Tools manually, open a NEW cmd window, re-run Install.bat.'
     }
+    # Verify the toolchain is actually usable in this shell (vswhere alone is not enough).
+    try {
+        Enter-VsDevShell
+    } catch {
+        throw ("MSVC installed but cl.exe cannot be loaded: " + $_.Exception.Message)
+    }
     Write-Ok 'MSVC C++ build tools available'
 }
 
@@ -351,39 +357,97 @@ function Enter-VsDevShell {
         return
     }
     if ($DryRun) {
-        Write-Host '[dry-run] would import VsDevCmd.bat environment'
+        Write-Host '[dry-run] would import VsDevCmd.bat / DevShell environment'
         return
     }
+
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (-not (Test-Path -LiteralPath $vswhere)) {
         throw 'vswhere.exe not found. Install VS 2022 Build Tools (C++), close window, re-run Install.bat.'
     }
     $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
     if (-not $vsPath) {
-        throw 'MSVC VC Tools not installed. Install.bat should have run Ensure-MsvcBuildTools - install Build Tools manually and retry.'
+        $vsPath = & $vswhere -latest -products * -property installationPath 2>$null
     }
-    $vsDevCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
-    if (-not (Test-Path -LiteralPath $vsDevCmd)) {
-        throw "VsDevCmd.bat missing under $vsPath"
+    if (-not $vsPath) {
+        throw 'MSVC VC Tools not installed. Install Desktop development with C++ (VS 2022 Build Tools), close window, re-run Install.bat.'
     }
-    Write-Step 'Importing Visual Studio developer environment (x64)'
-    # Capture env after VsDevCmd and apply to current process.
-    $cmd = "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64 >nul && set"
-    $output = & cmd.exe /c $cmd
-    foreach ($line in $output) {
-        if ($line -match '^(.*?)=(.*)$') {
-            $name = $Matches[1]
-            $value = $Matches[2]
-            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
-            Set-Item -Path "Env:$name" -Value $value
+    $vsPath = "$vsPath".Trim()
+
+    Write-Step "Importing Visual Studio developer environment (x64) from $vsPath"
+
+    $loaded = $false
+    $devShell = Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll'
+    if (Test-Path -LiteralPath $devShell) {
+        try {
+            Import-Module $devShell -ErrorAction Stop
+            # Cmdlet name collides with this function - call via module qualification.
+            Microsoft.VisualStudio.DevShell\Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=amd64 -host_arch=amd64' | Out-Null
+            $loaded = $true
+            Write-Ok 'DevShell module loaded'
+        } catch {
+            Write-Warn ("DevShell module failed: $($_.Exception.Message) - falling back to VsDevCmd.bat")
         }
     }
-    Update-SessionPath
-    if (-not (Test-CommandExists 'cl')) {
-        throw 'cl.exe still not on PATH after VsDevCmd. Open "x64 Native Tools Command Prompt", cd to repo, run Install.bat.'
+
+    if (-not $loaded) {
+        $vsDevCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
+        if (-not (Test-Path -LiteralPath $vsDevCmd)) {
+            throw "VsDevCmd.bat missing under $vsPath"
+        }
+        # CRITICAL: use CALL. Without CALL, cmd.exe never runs `set` after a .bat file.
+        $tmp = Join-Path $env:TEMP ('vs-v2-env-' + [guid]::NewGuid().ToString('n') + '.txt')
+        $batFile = Join-Path $env:TEMP ('vs-v2-vsdev-' + [guid]::NewGuid().ToString('n') + '.bat')
+        $batch = @(
+            '@echo off',
+            "call `"$vsDevCmd`" -arch=amd64 -host_arch=amd64",
+            'if errorlevel 1 exit /b 1',
+            "set > `"$tmp`""
+        ) -join "`r`n"
+        Set-Content -LiteralPath $batFile -Value $batch -Encoding ASCII
+        try {
+            & cmd.exe /c "`"$batFile`""
+            if ($LASTEXITCODE -ne 0) { throw "VsDevCmd.bat failed (exit $LASTEXITCODE)" }
+            if (-not (Test-Path -LiteralPath $tmp)) { throw 'VsDevCmd env capture file missing' }
+            Get-Content -LiteralPath $tmp | ForEach-Object {
+                $eq = $_.IndexOf('=')
+                if ($eq -lt 1) { return }
+                $name = $_.Substring(0, $eq)
+                $value = $_.Substring($eq + 1)
+                [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+                Set-Item -Path "Env:$name" -Value $value -ErrorAction SilentlyContinue
+            }
+        } finally {
+            Remove-Item -LiteralPath $batFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
     }
-    Write-Ok 'MSVC environment loaded (cl on PATH)'
+
+    Update-SessionPath
+
+    $cl = $null
+    try { $cl = (Get-Command cl -ErrorAction SilentlyContinue).Source } catch {}
+    if (-not $cl) {
+        $msvcRoot = Join-Path $vsPath 'VC\Tools\MSVC'
+        if (Test-Path -LiteralPath $msvcRoot) {
+            $clCandidate = Get-ChildItem -Path $msvcRoot -Filter cl.exe -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\Hostx64\\x64\\cl\.exe$' } |
+                Select-Object -First 1
+            if ($clCandidate) {
+                $dir = $clCandidate.Directory.FullName
+                $env:Path = "$dir;$env:Path"
+                $cl = $clCandidate.FullName
+                Write-Warn "Injected MSVC Hostx64\\x64 onto PATH: $dir"
+            }
+        }
+    }
+    if (-not $cl) {
+        throw 'cl.exe still not on PATH after VsDevCmd. Install VS 2022 Build Tools workload VCTools, reboot, open a NEW cmd, cd to repo, run Install.bat.'
+    }
+    Write-Ok "MSVC environment loaded ($cl)"
 }
+
+
 
 function Wait-HttpOk {
     param([string]$Url, [int]$Attempts = 40, [int]$DelayMs = 500)
