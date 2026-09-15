@@ -28,6 +28,7 @@ import { registerLearningRoutes } from './routes/learning.js';
 import { registerModelsRoutes } from './routes/models.js';
 import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerMarketCoreRoutes } from './routes/marketCore.js';
+import { registerNewsRoutes } from './routes/news.js';
 import { registerClientPanelStatic } from './services/clientPanelStatic.js';
 import { TelemetryBroadcaster } from './ws/telemetry.js';
 import { registerMarketStream } from './websocket/marketStream.js';
@@ -140,6 +141,7 @@ async function main() {
   await registerPipelineRoutes(app);
   await registerAuditRoutes(app);
   await registerSettingsRoutes(app);
+  await registerNewsRoutes(app);
   await registerClientPanelStatic(app);
 
   app.get('/ws', { websocket: true }, (socket) => {

@@ -91,7 +91,11 @@ function proxyUpgrade(req, clientSocket, head) {
 
 function safeFileFromUrl(urlPath) {
   const rel = decodeURIComponent((urlPath || '/').split('?')[0]);
-  const candidate = path.resolve(DIST, '.' + (rel === '/' ? '/index.html' : rel));
+  const fallback =
+    fs.existsSync(path.join(DIST, 'index.html'))
+      ? '/index.html'
+      : '/index.client.html';
+  const candidate = path.resolve(DIST, '.' + (rel === '/' ? fallback : rel));
   if (!candidate.startsWith(DIST)) return null;
   return candidate;
 }
@@ -103,9 +107,14 @@ function sendFile(res, filePath) {
 }
 
 function sendIndexOrHelp(res) {
-  const index = path.join(DIST, 'index.html');
-  if (fs.existsSync(index)) {
-    sendFile(res, index);
+  const indexHtml = path.join(DIST, 'index.html');
+  const indexClient = path.join(DIST, 'index.client.html');
+  if (fs.existsSync(indexHtml)) {
+    sendFile(res, indexHtml);
+    return;
+  }
+  if (fs.existsSync(indexClient)) {
+    sendFile(res, indexClient);
     return;
   }
   res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -134,7 +143,9 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 server.listen(LISTEN_PORT, '0.0.0.0', () => {
-  const ready = fs.existsSync(path.join(DIST, 'index.html'));
+  const ready =
+    fs.existsSync(path.join(DIST, 'index.html')) ||
+    fs.existsSync(path.join(DIST, 'index.client.html'));
   console.log(
     `[client-gateway] public :${LISTEN_PORT}  static=${DIST}  api=${API_HOST}:${API_PORT}  built=${ready}`,
   );

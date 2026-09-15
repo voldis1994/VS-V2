@@ -2,11 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool.js';
 import { logAudit } from '../services/audit.js';
 import { generateAccessCode, hashAccessCode } from '../security/accessCode.js';
+import { encrypt, maskSecret } from '../security/encryption.js';
 import { revokeAllClientSessions } from '../security/clientSession.js';
 import {
   getClientPanelStatus,
   stopClientRobot,
 } from '../services/clientPanel.js';
+import { ensureBrokerAccount, seedAccountInstruments } from './trading.js';
 
 async function hardDeleteClient(clientId: string): Promise<void> {
   const db = await pool.connect();
@@ -94,6 +96,8 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         robot_status: panel?.robot_status ?? 'STOPPED',
         live_trade: panel?.live_trade ?? null,
         account_id: panel?.account_id ?? null,
+        broker_error: panel?.broker_error ?? null,
+        status_reason: panel?.status_reason ?? null,
       });
     }
     return out;
@@ -127,14 +131,162 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     return { ...rows[0], accounts: accounts.rows, panel };
   });
 
-  app.post('/api/clients', async (request) => {
-    const body = request.body as { name: string };
+  app.post('/api/clients', async (request, reply) => {
+    const body = request.body as {
+      name?: string;
+      password?: string;
+      access_enabled?: boolean;
+      risk_enabled?: boolean;
+      capital?: {
+        environment?: string;
+        identifier?: string;
+        api_key?: string;
+        password?: string;
+      };
+    };
+
+    const name = String(body.name || '').trim();
+    if (!name) {
+      return reply.code(400).send({ error: 'name is required', message: 'name is required' });
+    }
+
+    const capital = body.capital;
+    if (capital) {
+      const identifier = String(capital.identifier || '').trim();
+      const apiKey = String(capital.api_key || '').trim();
+      const apiPassword = String(capital.password || '').trim();
+      const environment = String(capital.environment || 'live').trim() || 'live';
+      if (!identifier || !apiKey || !apiPassword) {
+        return reply.code(400).send({
+          error: 'Capital.com requires identifier, api_key, and password',
+          message: 'Capital.com requires identifier (email), API key, and API password',
+        });
+      }
+      if (apiKey.includes('@')) {
+        return reply.code(400).send({
+          error: 'API Key looks like an email',
+          message:
+            'API Key looks like an email. Put email in Identifier, and paste the Capital.com API Key in API Key.',
+        });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const created = await client.query(
+          `INSERT INTO clients (name, enabled, access_enabled, risk_enabled)
+           VALUES ($1, true, $2, $3)
+           RETURNING id, name, enabled, access_enabled, risk_enabled, created_at`,
+          [
+            name,
+            body.access_enabled !== false,
+            body.risk_enabled !== false,
+          ]
+        );
+        const row = created.rows[0] as {
+          id: number;
+          name: string;
+          enabled: boolean;
+          access_enabled: boolean;
+          risk_enabled: boolean;
+          created_at: string;
+        };
+
+        const plainPassword =
+          String(body.password || '').trim() || generateAccessCode();
+        if (plainPassword.length < 6) {
+          throw new Error('Password must be at least 6 characters');
+        }
+        await client.query(
+          `UPDATE clients SET
+             access_code_hash = $2,
+             access_enabled = true,
+             updated_at = NOW()
+           WHERE id = $1`,
+          [row.id, hashAccessCode(plainPassword)]
+        );
+
+        const conn = await client.query(
+          `INSERT INTO broker_connections (client_id, broker_name, environment, identifier)
+           VALUES ($1, 'capital_com', $2, $3) RETURNING id`,
+          [row.id, environment, identifier]
+        );
+        const connectionId = conn.rows[0].id as number;
+        const encKey = encrypt(apiKey);
+        const encPw = encrypt(apiPassword);
+        await client.query(
+          `INSERT INTO api_credential_metadata
+           (broker_connection_id, credential_type, ciphertext, iv, tag, masked_value)
+           VALUES ($1, 'api_key', $2, $3, $4, $5)`,
+          [connectionId, encKey.ciphertext, encKey.iv, encKey.tag, maskSecret(apiKey)]
+        );
+        await client.query(
+          `INSERT INTO api_credential_metadata
+           (broker_connection_id, credential_type, ciphertext, iv, tag, masked_value)
+           VALUES ($1, 'password', $2, $3, $4, $5)`,
+          [connectionId, encPw.ciphertext, encPw.iv, encPw.tag, maskSecret(apiPassword)]
+        );
+
+        await client.query('COMMIT');
+
+        const accountId = await ensureBrokerAccount(
+          connectionId,
+          `${row.name} / capital_com (${environment})`
+        );
+        await seedAccountInstruments(accountId);
+
+        await logAudit('admin', 'client_provisioned', 'client', String(row.id), null, {
+          broker_connection_id: connectionId,
+          account_id: accountId,
+          environment,
+        });
+
+        return {
+          ...row,
+          access_enabled: true,
+          has_access_code: true,
+          access_code: plainPassword,
+          broker_connection_id: connectionId,
+          account_id: accountId,
+          message:
+            'Client created with Capital.com + web password. Save the access_code now — it will not be shown again.',
+        };
+      } catch (err) {
+        await client.query('ROLLBACK');
+        const message = err instanceof Error ? err.message : 'Provision failed';
+        return reply.code(400).send({ error: message, message });
+      } finally {
+        client.release();
+      }
+    }
+
     const { rows } = await pool.query(
-      'INSERT INTO clients (name) VALUES ($1) RETURNING id, name, enabled, access_enabled, created_at',
-      [body.name]
+      `INSERT INTO clients (name, enabled, access_enabled, risk_enabled)
+       VALUES ($1, true, $2, $3)
+       RETURNING id, name, enabled, access_enabled, risk_enabled, created_at`,
+      [name, body.access_enabled === true, body.risk_enabled !== false]
     );
+    let accessCode: string | null = null;
+    if (body.password || body.access_enabled) {
+      accessCode = String(body.password || '').trim() || generateAccessCode();
+      await pool.query(
+        `UPDATE clients SET
+           access_code_hash = $2,
+           access_enabled = true,
+           updated_at = NOW()
+         WHERE id = $1`,
+        [rows[0].id, hashAccessCode(accessCode)]
+      );
+    }
     await logAudit('admin', 'client_created', 'client', String(rows[0].id), null, rows[0]);
-    return rows[0];
+    return {
+      ...rows[0],
+      has_access_code: Boolean(accessCode),
+      access_code: accessCode,
+      message: accessCode
+        ? 'Save this access_code now — it will not be shown again.'
+        : 'Client created. Set password when ready.',
+    };
   });
 
   app.put('/api/clients/:id', async (request) => {
@@ -186,11 +338,19 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
   app.post('/api/clients/:id/access-code', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const body = (request.body || {}) as { password?: string };
     const exists = await pool.query('SELECT id, name FROM clients WHERE id = $1', [id]);
     if (!exists.rows.length) {
       return reply.code(404).send({ error: 'Client not found' });
     }
-    const code = generateAccessCode();
+    const custom = String(body.password || '').trim();
+    if (custom && custom.length < 6) {
+      return reply.code(400).send({
+        error: 'Password too short',
+        message: 'Password must be at least 6 characters',
+      });
+    }
+    const code = custom || generateAccessCode();
     const hash = hashAccessCode(code);
     await pool.query(
       `UPDATE clients SET
@@ -203,8 +363,8 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     await revokeAllClientSessions(Number(id));
     await logAudit('admin', 'client_access_code_reset', 'client', id, null, {
       access_enabled: true,
+      custom_password: Boolean(custom),
     });
-    // Plaintext returned ONCE — never stored
     return {
       success: true,
       client_id: Number(id),
