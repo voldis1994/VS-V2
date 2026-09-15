@@ -88,7 +88,14 @@ function Update-SessionPath {
 
 function Find-ToolOnDisk {
     param([string]$Name)
-    $exe = if ($Name -match '\.exe$') { $Name } else { "$Name.exe" }
+    # npm is npm.cmd (not npm.exe). Node is node.exe.
+    if ($Name -match '^(npm)(\.cmd)?$') {
+        $candidates = @('npm.cmd', 'npm.exe')
+    } elseif ($Name -match '\.exe$') {
+        $candidates = @($Name)
+    } else {
+        $candidates = @("$Name.exe")
+    }
     $dirs = @()
 
     if ($Name -match '^(cmake)(\.exe)?$') {
@@ -120,12 +127,14 @@ function Find-ToolOnDisk {
     }
 
     foreach ($dir in ($dirs | Select-Object -Unique)) {
-        $candidate = Join-Path $dir $exe
-        if (Test-Path -LiteralPath $candidate) {
-            if ($env:Path -notlike "*$dir*") {
-                $env:Path = "$dir;$env:Path"
+        foreach ($exeName in $candidates) {
+            $candidate = Join-Path $dir $exeName
+            if (Test-Path -LiteralPath $candidate) {
+                if ($env:Path -notlike "*$dir*") {
+                    $env:Path = "$dir;$env:Path"
+                }
+                return $candidate
             }
-            return $candidate
         }
     }
     return $null
