@@ -57,7 +57,11 @@ export async function authMiddleware(
   }
 
   if (token !== expected) {
-    reply.code(401).send({ error: 'Unauthorized' });
+    reply.code(401).send({
+      error: 'Unauthorized',
+      message:
+        'Admin token mismatch. Restart Dashboard via V2.bat so Vite proxy injects API_ADMIN_TOKEN from .env.',
+    });
     return;
   }
 }
