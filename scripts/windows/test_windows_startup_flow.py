@@ -83,6 +83,10 @@ def test_install_flow() -> list[str]:
             "broker_orders_forbidden",
             "Get-MarketCoreExe",
             "Start-DockerDeps",
+            "Update-SessionPath",
+            "Find-ToolOnDisk",
+            "Resolve-Tool",
+            "Kitware.CMake",
         ],
         "common.ps1",
     )
