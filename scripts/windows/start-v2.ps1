@@ -1,5 +1,10 @@
 # VS-V2 daily Windows launch (V2.bat)
-# Control API + Market Core (--mode PAPER) + Dashboard + browser.
+# ONE double-click starts everything:
+#   1) postgres + redis (docker)
+#   2) Control API  -> visible CMD window
+#   3) Market Core  -> visible CMD window (--mode PAPER)
+#   4) Dashboard    -> visible CMD window
+#   5) browser
 # Does NOT reinstall. Does NOT switch SHADOW/LIVE. Does NOT send broker orders.
 param(
     [string]$RepoRoot = '',
@@ -17,9 +22,10 @@ Assert-VsRepoRoot -Root $Root
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  VS-V2 V2.bat - daily PAPER launch' -ForegroundColor Green
+Write-Host '  VS-V2 V2.bat - daily PAPER launch (one-shot)' -ForegroundColor Green
 Write-Host '============================================================' -ForegroundColor Green
 Write-Host "  Root: $Root"
+Write-Host '  Opens 3 CMD windows: Control API + Market Core + Dashboard'
 Write-Host '  Default mode: PAPER | LIVE trading: OFF | No broker orders'
 Write-Host ''
 
@@ -35,7 +41,7 @@ if (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Pa
 elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
 Enforce-PaperFailClosed
 Assert-PaperFailClosed
-# Admin API token: dashboard Vite proxy injects x-admin-token from this process env.
+
 if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKEN') {
     if ($env:ALLOW_INSECURE_ADMIN -ne 'true') {
         Write-Warn 'API_ADMIN_TOKEN is CHANGE_ME/empty - control-api will refuse admin routes. Re-run Install.bat or set ALLOW_INSECURE_ADMIN=true for local-only.'
@@ -43,7 +49,6 @@ if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKE
 } else {
     Write-Ok 'API_ADMIN_TOKEN loaded for dashboard proxy'
 }
-
 
 Write-Ok 'Forced OPERATING_MODE=PAPER LIVE_TRADING_ENABLED=false'
 
@@ -61,6 +66,8 @@ try {
     Write-Warn 'Continuing - if DB is already local, API may still work'
 }
 
+# Opens a visible CMD window that stays open (/k). All PAPER services are started this way
+# so one V2.bat double-click is enough - no manual extra terminals.
 function Start-LoggedProcess {
     param(
         [string]$Title,
@@ -78,8 +85,8 @@ function Start-LoggedProcess {
         return $null
     }
 
-    # Always prefer absolute executable paths. Bare "npm.cmd" resolves via cwd first and
-    # can pick a broken project-local shim that looks for node_modules\npm\bin\npm-cli.js.
+    # Absolute paths only. Bare "npm.cmd" can resolve to a broken project-local shim
+    # that looks for <repo>\node_modules\npm\bin\npm-cli.js (MODULE_NOT_FOUND).
     $exe = $FilePath
     if ($FilePath -match '(?i)^npm(\.cmd)?$') {
         $resolvedNpm = Resolve-Tool -Name 'npm'
@@ -121,31 +128,52 @@ function Start-LoggedProcess {
     foreach ($k in $ExtraEnv.Keys) {
         $envBlock += ('set {0}={1}' -f $k, $ExtraEnv[$k])
     }
+
     $logPath = Join-Path $logs $LogName
     $runLine = if ($exe -match '(?i)\.(cmd|bat)$') {
         'call "{0}" {1} >> "{2}" 2>&1' -f $exe, $Arguments, $logPath
     } else {
         '"{0}" {1} >> "{2}" 2>&1' -f $exe, $Arguments, $logPath
     }
+
+    # Visible CMD: title + live tee-like note. /k keeps window open if process exits.
     $cmd = @"
 @echo off
+title $Title
+color 0A
 cd /d "$WorkingDirectory"
 $($envBlock -join "`r`n")
+echo ============================================================
+echo   $Title
+echo   PAPER only - LIVE trading OFF - no broker orders
+echo   Log: $logPath
+echo   Close this window to stop this service.
+echo ============================================================
 echo [%date% %time%] starting $Title>> "$logPath"
 echo [%date% %time%] exe=$exe args=$Arguments>> "$logPath"
+echo Starting: $exe $Arguments
 $runLine
-echo [%date% %time%] exited $Title code=%ERRORLEVEL%>> "$logPath"
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] exited $Title code=%RC%>> "$logPath"
+echo.
+echo [$Title] exited with code %RC%
+echo Log: $logPath
+echo.
+pause
 "@
     $launcher = Join-Path $env:TEMP ("vs-v2-" + $Title + '.cmd')
     Set-Content -LiteralPath $launcher -Value $cmd -Encoding ASCII
-    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$launcher`"") -WorkingDirectory $WorkingDirectory -PassThru -WindowStyle Minimized
+    # Normal (visible) so one V2.bat click shows all service windows - no manual CMD needed.
+    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$launcher`"") -WorkingDirectory $WorkingDirectory -PassThru -WindowStyle Normal
     Set-Content -LiteralPath (Join-Path $logs ($LogName + '.pid')) -Value $p.Id
-    Write-Ok "$Title started pid=$($p.Id) log=$logPath"
+    Write-Ok "$Title CMD opened pid=$($p.Id) log=$logPath"
     Write-Host "  exe: $exe $Arguments"
     return $p
 }
 
-Write-Step 'Write-Step 'Starting Control API'
+Write-Step 'Starting all PAPER services (3 CMD windows)'
+
+# --- 1) Control API via absolute node.exe (never npm) ---
 $apiLog = Join-Path $logs 'control-api.paper.log'
 $distJs = Join-Path $Root 'apps\control-api\dist\index.js'
 $envPaper = Join-Path $Root '.env.paper'
@@ -154,9 +182,6 @@ if (-not $nodeExe) { $nodeExe = Join-Path ${env:ProgramFiles} 'nodejs\node.exe' 
 if (-not (Test-Path -LiteralPath $nodeExe)) {
     throw "node.exe not found at $nodeExe - install Node.js 20+ LTS, open a NEW cmd, re-run V2.bat"
 }
-
-# Never launch Control API through npm.cmd - broken npm prefix looks for
-# <repo>\node_modules\npm\bin\npm-cli.js (MODULE_NOT_FOUND). Use node.exe + dist.
 if (-not (Test-Path -LiteralPath $distJs)) {
     Write-Warn 'control-api dist missing - building once with node (tsc)'
     $tscJs = Join-Path $Root 'node_modules\typescript\bin\tsc'
@@ -169,19 +194,15 @@ if (-not (Test-Path -LiteralPath $distJs)) {
         } finally { Pop-Location }
     }
     if (-not (Test-Path -LiteralPath $distJs) -and -not $DryRun) {
-        throw 'apps\control-api\dist\index.js missing. Run Install.bat (or: npm run build --workspace=@vs-v2/control-api) then V2.bat again.'
+        throw 'apps\control-api\dist\index.js missing. Run Install.bat then V2.bat again.'
     }
 }
-
 $nodeArgs = if (Test-Path -LiteralPath $envPaper) {
-    # Absolute paths so a wrong cwd cannot break module resolution.
     '--env-file="' + $envPaper + '" "' + $distJs + '"'
 } else {
     '"' + $distJs + '"'
 }
-Write-Ok "starting control-api via node.exe (not npm): $nodeExe"
-Write-Host "  args: $nodeArgs"
-Write-Host "  log:  $apiLog"
+Write-Ok "control-api via node.exe (not npm): $nodeExe"
 Start-LoggedProcess -Title 'VS-ControlAPI' -FilePath $nodeExe `
     -Arguments $nodeArgs `
     -WorkingDirectory $Root -LogName 'control-api.paper.log' -ExtraEnv @{
@@ -191,22 +212,10 @@ Start-LoggedProcess -Title 'VS-ControlAPI' -FilePath $nodeExe `
         CONTROL_API_PORT     = '3000'
     } | Out-Null
 
-if (-not $DryRun) {
-    $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
-    Write-Host "Waiting for Control API /health at $apiBase/health"
-    Write-Host 'If this sits here, open minimized VS-ControlAPI or the log above.'
-    if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label 'Control API /health')) {
-        Write-LogTail -Path $apiLog -Lines 60
-        throw "Control API did not become healthy at $apiBase/health - see log tail (often DB password mismatch). Fix .env.paper DB_* then re-run V2.bat. Do NOT use npm.cmd for control-api."
-    }
-    Write-Ok 'Control API healthy'
-    Invoke-PaperPreflight -Root $Root
-}
-
-Write-Step 'Starting Market Core (--mode PAPER, execution disabled)'
+# --- 2) Market Core (separate CMD) ---
 $exe = Get-MarketCoreExe -Root $Root
 if ($SkipMarketCore) {
-    Write-Warn 'SkipMarketCore set'
+    Write-Warn 'SkipMarketCore set - Market Core CMD will not open'
 } elseif (-not $exe -and -not $DryRun) {
     throw 'market-core binary not found. Run Install.bat first.'
 } else {
@@ -220,11 +229,11 @@ if ($SkipMarketCore) {
     Write-Ok 'market-core --mode PAPER (no broker order gateway)'
 }
 
-Write-Step 'Starting Dashboard'
+# --- 3) Dashboard (separate CMD) ---
 $npmExe = Resolve-Tool -Name 'npm'
 if (-not $npmExe) { $npmExe = Join-Path ${env:ProgramFiles} 'nodejs\npm.cmd' }
 if (-not (Test-Path -LiteralPath $npmExe)) {
-    throw "npm.cmd not found. Repair Node.js install (winget install OpenJS.NodeJS.LTS), NEW cmd, V2.bat"
+    throw 'npm.cmd not found. Repair Node.js (winget install OpenJS.NodeJS.LTS), NEW cmd, V2.bat'
 }
 Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $npmExe `
     -Arguments 'run dev --workspace=@vs-v2/dashboard' `
@@ -233,10 +242,27 @@ Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $npmExe `
         LIVE_TRADING_ENABLED = 'false'
     } | Out-Null
 
+Write-Ok 'All service CMD windows launched (Control API + Market Core + Dashboard)'
+
+# Health waits AFTER all windows are open (one-shot UX).
+if (-not $DryRun) {
+    $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
+    Write-Step 'Waiting for Control API /health (windows already open)'
+    Write-Host "  $apiBase/health"
+    Write-Host '  Watch the VS-ControlAPI window or logs\control-api.paper.log'
+    if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label 'Control API /health')) {
+        Write-LogTail -Path $apiLog -Lines 60
+        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail (often DB password mismatch). Fix .env.paper DB_* then re-run V2.bat."
+    }
+    Write-Ok 'Control API healthy'
+    Invoke-PaperPreflight -Root $Root
+}
+
 $dashUrl = Resolve-DashboardUrl
 if (-not $DryRun) {
-    if (-not (Wait-HttpOk -Url $dashUrl -Attempts 60 -DelayMs 500)) {
-        Write-Warn "Dashboard not responding yet at $dashUrl (check logs\dashboard.paper.log)"
+    Write-Step 'Waiting for Dashboard'
+    if (-not (Wait-HttpOk -Url $dashUrl -Attempts 60 -DelayMs 500 -Label 'Dashboard')) {
+        Write-Warn "Dashboard not responding yet at $dashUrl (check VS-Dashboard window / logs\dashboard.paper.log)"
     } else {
         Write-Ok "Dashboard up $dashUrl"
     }
@@ -257,11 +283,12 @@ if (-not $DryRun) {
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  PAPER stack running' -ForegroundColor Green
+Write-Host '  PAPER stack running (started by one V2.bat click)' -ForegroundColor Green
+Write-Host '  CMD windows: VS-ControlAPI | VS-MarketCore | VS-Dashboard' -ForegroundColor Green
 Write-Host "  Dashboard: $dashUrl" -ForegroundColor Green
-Write-Host "  Control API: $($env:CONTROL_API_URL)" -ForegroundColor Green
+Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Green
 Write-Host '  Mode: PAPER | Live trading: false | Broker orders: forbidden' -ForegroundColor Green
 Write-Host "  Logs: $logs\*.paper.log" -ForegroundColor Green
-Write-Host '  Keep VS-ControlAPI / VS-MarketCore / VS-Dashboard windows open' -ForegroundColor Yellow
+Write-Host '  Keep the 3 service CMD windows open. Close a window to stop that service.' -ForegroundColor Yellow
 Write-Host '============================================================' -ForegroundColor Green
 exit 0

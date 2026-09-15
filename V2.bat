@@ -11,8 +11,8 @@ color 0A
 
 echo.
 echo ============================================================
-echo   VS-V2  V2.bat  -  daily PAPER launch
-echo   Control API + Market Core + Dashboard
+echo   VS-V2  V2.bat  -  daily PAPER launch (one-shot)
+echo   Opens 3 CMD windows: Control API + Market Core + Dashboard
 echo   LIVE trading OFF - broker orders forbidden
 echo ============================================================
 echo   Folder: %ROOT%
@@ -53,6 +53,7 @@ if not "%RC%"=="0" (
 )
 
 echo.
-echo PAPER stack start issued. Keep service windows open.
+echo PAPER stack running. Keep the 3 service CMD windows open.
+echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard
 pause
 exit /b 0
