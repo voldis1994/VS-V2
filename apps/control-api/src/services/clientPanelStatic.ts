@@ -45,7 +45,7 @@ export async function registerClientPanelStatic(app: FastifyInstance): Promise<v
 
     reply.header('X-VS-Panel', 'control-api');
 
-    if (!fs.existsSync(path.join(dist, 'index.html'))) {
+    if (!fs.existsSync(path.join(dist, 'index.html')) && !fs.existsSync(path.join(dist, 'index.client.html'))) {
       return reply
         .code(503)
         .type('text/plain; charset=utf-8')
@@ -54,7 +54,9 @@ export async function registerClientPanelStatic(app: FastifyInstance): Promise<v
 
     let file = safeJoin(dist, urlPath);
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
-      file = path.join(dist, 'index.html');
+      const preferred = path.join(dist, 'index.html');
+      const fallback = path.join(dist, 'index.client.html');
+      file = fs.existsSync(preferred) ? preferred : fallback;
     }
     const ext = path.extname(file).toLowerCase();
     return reply.type(MIME[ext] || 'application/octet-stream').send(fs.createReadStream(file));
