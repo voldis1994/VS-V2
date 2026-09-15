@@ -68,6 +68,22 @@ function trustProxyOption(): boolean | string | string[] | number {
     .filter(Boolean);
 }
 
+async function waitForDatabase(maxAttempts = 30, delayMs = 1000): Promise<void> {
+  let lastErr: unknown;
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      await pool.query('SELECT 1');
+      if (i > 1) console.log(`Database ready after ${i} attempt(s)`);
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Database not ready (${i}/${maxAttempts}) - retrying...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error(`Database unreachable after ${maxAttempts} attempts: ${String(lastErr)}`);
+}
+
 async function main() {
   if (process.env.LIVE_TRADING_ENABLED === undefined || process.env.LIVE_TRADING_ENABLED === '') {
     process.env.LIVE_TRADING_ENABLED = 'false';
@@ -76,6 +92,7 @@ async function main() {
     process.env.OPERATING_MODE = 'PAPER';
   }
 
+  await waitForDatabase();
   await runMigrations();
 
   const app = Fastify({

@@ -562,16 +562,75 @@ function Invoke-MarketCoreBuild {
 }
 
 function Wait-HttpOk {
-    param([string]$Url, [int]$Attempts = 40, [int]$DelayMs = 500)
+    param(
+        [string]$Url,
+        [int]$Attempts = 40,
+        [int]$DelayMs = 500,
+        [string]$Label = '',
+        [switch]$Quiet
+    )
+    $name = if ($Label) { $Label } else { $Url }
+    if (-not $Quiet) {
+        Write-Host ("Waiting for {0} (up to {1}s)..." -f $name, [int](($Attempts * $DelayMs) / 1000))
+    }
     for ($i = 0; $i -lt $Attempts; $i++) {
         try {
             $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
-            if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300) { return $true }
+            if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300) {
+                if (-not $Quiet) { Write-Ok ("{0} is up" -f $name) }
+                return $true
+            }
         } catch {
-            Start-Sleep -Milliseconds $DelayMs
+            # keep polling
         }
+        if (-not $Quiet -and (($i + 1) % 5 -eq 0)) {
+            Write-Host ("  ... still waiting ({0}/{1}) {2}" -f ($i + 1), $Attempts, $name)
+        }
+        Start-Sleep -Milliseconds $DelayMs
     }
     return $false
+}
+
+function Write-LogTail {
+    param([string]$Path, [int]$Lines = 40)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Warn ("Log not found: {0}" -f $Path)
+        return
+    }
+    Write-Warn ("----- tail {0} -----" -f $Path)
+    Get-Content -LiteralPath $Path -Tail $Lines | ForEach-Object { Write-Host $_ }
+    Write-Warn ("----- end log -----")
+}
+
+function Wait-PostgresReady {
+    param([int]$Attempts = 30, [int]$DelayMs = 1000)
+    $dockerExe = Resolve-Tool -Name 'docker'
+    if (-not $dockerExe) {
+        Write-Warn 'docker not on PATH - skipping pg_isready wait'
+        Start-Sleep -Seconds 3
+        return
+    }
+    Write-Host 'Waiting for postgres to accept connections...'
+    for ($i = 0; $i -lt $Attempts; $i++) {
+        $dbUser = if ($env:DB_USER) { $env:DB_USER } else { 'market_reader' }
+        $dbName = if ($env:DB_NAME) { $env:DB_NAME } else { 'market_reader' }
+        & $dockerExe exec vs-v2-postgres pg_isready -U $dbUser -d $dbName 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok 'postgres is ready'
+            return
+        }
+        # fallback: container health
+        $health = & $dockerExe inspect -f '{{.State.Health.Status}}' vs-v2-postgres 2>$null
+        if (("$health").Trim() -eq 'healthy') {
+            Write-Ok 'postgres container healthy'
+            return
+        }
+        if ((($i + 1) % 5) -eq 0) {
+            Write-Host ("  ... postgres not ready yet ({0}/{1})" -f ($i + 1), $Attempts)
+        }
+        Start-Sleep -Milliseconds $DelayMs
+    }
+    Write-Warn 'postgres did not become ready in time - Control API may fail migrations'
 }
 
 function Invoke-PaperPreflight {
@@ -642,7 +701,7 @@ function Start-DockerDeps {
         }
         if ($LASTEXITCODE -ne 0) { throw 'Failed to start postgres/redis via docker compose' }
         Write-Ok 'postgres + redis started'
-        Start-Sleep -Seconds 3
+        Wait-PostgresReady
     } finally {
         Pop-Location
     }
