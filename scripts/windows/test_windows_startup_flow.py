@@ -174,6 +174,8 @@ def test_v2_flow() -> list[str]:
             "Tee-Object",
             "Control API /health",
             "via node.exe (not npm)",
+            "copy-migrations",
+            r"dist\db\migrations",
             "npm_config_prefix",
             "bypass npm.ps1",
             r"apps\control-api\dist\index.js",
