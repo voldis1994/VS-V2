@@ -131,11 +131,15 @@ if (-not $SkipCppBuild) {
     Write-Step 'C++ market-core build'
     if ($DryRun) { Write-Host '[dry-run] cmake configure + build market-core' }
     else {
+        $cmake = Resolve-Tool -Name 'cmake'
+        if (-not $cmake) {
+            throw 'cmake not found on PATH after Ensure-Tool (close window and re-run Install.bat)'
+        }
         $usedPreset = $false
         if (Test-Path -LiteralPath (Join-Path $Root 'CMakePresets.json')) {
-            & cmake --preset windows-release
+            & $cmake --preset windows-release
             if ($LASTEXITCODE -eq 0) {
-                & cmake --build --preset windows-release --target market-core -j
+                & $cmake --build --preset windows-release --target market-core -j
                 $usedPreset = ($LASTEXITCODE -eq 0)
             }
         }
@@ -144,9 +148,9 @@ if (-not $SkipCppBuild) {
             if (-not (Test-Path -LiteralPath $buildDir)) {
                 New-Item -ItemType Directory -Path $buildDir | Out-Null
             }
-            & cmake -B $buildDir -DMR_BUILD_TESTS=OFF
+            & $cmake -B $buildDir -DMR_BUILD_TESTS=OFF
             if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
-            & cmake --build $buildDir --target market-core -j
+            & $cmake --build $buildDir --target market-core -j
             if ($LASTEXITCODE -ne 0) { throw 'cmake build market-core failed' }
         }
         $exe = Get-MarketCoreExe -Root $Root

@@ -275,8 +275,10 @@ function Start-DockerDeps {
     param([string]$Root, [switch]$DryRun)
     $compose = Join-Path $Root 'infra\docker\docker-compose.yml'
     if (-not (Test-Path -LiteralPath $compose)) { throw "Missing $compose" }
-    if (-not (Test-CommandExists 'docker')) {
-        throw 'Docker not found. Install Docker Desktop, start it, then re-run.'
+    # Same class of bug as cmake: docker may be installed but missing from this session PATH.
+    $dockerExe = Resolve-Tool -Name 'docker'
+    if (-not $dockerExe) {
+        throw 'Docker not found. Install Docker Desktop, start it, close this window, then re-run.'
     }
     if ($DryRun) {
         Write-Host '[dry-run] docker compose -f infra/docker/docker-compose.yml up -d postgres redis'
