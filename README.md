@@ -67,4 +67,17 @@ export PIPELINE_TOKEN=... CAPITAL_API_KEY=... MARKET_CORE_BRIDGE=1
 - `scripts/build.sh` — C++ + Node workspaces
 - `scripts/start-dev.sh` — postgres/redis + API + dashboard
 - `scripts/start-paper.sh` / `start-live.sh` / `start-replay.sh`
+- `scripts/deploy-client-web.sh` — build public Client Control Panel (`dist-client`) + gateway on `:5174` (put Cloudflare/nginx HTTPS in front; set `CLIENT_CORS_ORIGIN`, `CLIENT_COOKIE_SECURE=true`, `TRUST_PROXY=true`)
 - `tools/environment/doctor.py` — environment check
+
+### Public client web
+
+Admin Control Panel is the dashboard. Remote clients use a separate build:
+
+```bash
+npm run build:client --workspace=@vs-v2/dashboard
+# or one-shot:
+bash scripts/deploy-client-web.sh
+```
+
+Gateway serves `apps/dashboard/dist-client` and proxies `/api` + `/ws` to Control API. Clients must use public HTTPS (not Wi‑Fi-only).

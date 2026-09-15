@@ -12,12 +12,36 @@ type ClientRow = {
   panel_display_name?: string | null;
   panel_lot_size?: number | null;
   panel_robot_requested?: string | null;
+  robot_status?: string | null;
+  live_trade?: {
+    market: string;
+    display_name: string;
+    trade_type?: string;
+    lot_size: number;
+    entry_price: number | null;
+  } | null;
   last_seen_at?: string | null;
+};
+
+type ProvisionResult = ClientRow & {
+  access_code?: string;
+  broker_connection_id?: number;
+  account_id?: number;
+  message?: string;
+};
+
+const emptyForm = {
+  name: '',
+  password: '',
+  environment: 'live',
+  identifier: '',
+  api_key: '',
+  api_password: '',
 };
 
 export function ControlClientsPage() {
   const { data, loading, error, refresh } = useApi<ClientRow[]>('/api/clients', 10000);
-  const [name, setName] = useState('');
+  const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [issued, setIssued] = useState<{ id: number; code: string } | null>(null);
@@ -26,16 +50,35 @@ export function ControlClientsPage() {
 
   const createClient = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || busy) return;
+    if (!form.name.trim() || busy) return;
     setBusy(true);
     setMsg(null);
     try {
-      const created = await apiFetch<ClientRow>('/api/clients', {
+      const body: Record<string, unknown> = {
+        name: form.name.trim(),
+        access_enabled: true,
+        risk_enabled: true,
+      };
+      if (form.password.trim()) body.password = form.password.trim();
+      if (form.identifier.trim() || form.api_key.trim() || form.api_password.trim()) {
+        body.capital = {
+          environment: form.environment,
+          identifier: form.identifier.trim(),
+          api_key: form.api_key.trim(),
+          password: form.api_password.trim(),
+        };
+      }
+      const created = await apiFetch<ProvisionResult>('/api/clients', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify(body),
       });
-      setName('');
-      setMsg(`Created #${created.id} ${created.name}`);
+      if (created.access_code) {
+        setIssued({ id: created.id, code: created.access_code });
+      } else {
+        setIssued(null);
+      }
+      setForm(emptyForm);
+      setMsg(created.message || `Created #${created.id} ${created.name}`);
       refresh();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Create failed');
@@ -56,10 +99,18 @@ export function ControlClientsPage() {
 
   const issuePassword = async (client: ClientRow) => {
     setMsg(null);
+    const custom = window.prompt(
+      `Password for ${client.name} (leave empty to auto-generate)`,
+      ''
+    );
+    if (custom === null) return;
     try {
       const res = await apiFetch<{ access_code: string; client_id: number }>(
         `/api/clients/${client.id}/access-code`,
-        { method: 'POST', body: JSON.stringify({}) }
+        {
+          method: 'POST',
+          body: JSON.stringify(custom.trim() ? { password: custom.trim() } : {}),
+        }
       );
       setIssued({ id: res.client_id, code: res.access_code });
       setMsg(`Password issued for #${client.id} — copy now, shown once.`);
@@ -85,22 +136,74 @@ export function ControlClientsPage() {
   return (
     <div>
       <section className="cp-panel">
-        <h2>+ ADD CLIENT</h2>
+        <h2>+ ADD CLIENT (NAME + PASSWORD + CAPITAL)</h2>
         <form className="cp-form" onSubmit={(e) => void createClient(e)}>
-          <label>
-            Client name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Alpha Capital"
-              required
-            />
-          </label>
+          <div className="cp-grid-2">
+            <label>
+              Client name
+              <input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Alpha Capital"
+                required
+              />
+            </label>
+            <label>
+              Web password (optional — auto if empty)
+              <input
+                type="text"
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Client login password"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Capital environment
+              <select
+                value={form.environment}
+                onChange={(e) => setForm((f) => ({ ...f, environment: e.target.value }))}
+              >
+                <option value="live">live</option>
+                <option value="demo">demo</option>
+              </select>
+            </label>
+            <label>
+              Capital identifier (email)
+              <input
+                value={form.identifier}
+                onChange={(e) => setForm((f) => ({ ...f, identifier: e.target.value }))}
+                placeholder="client@email.com"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Capital API key
+              <input
+                value={form.api_key}
+                onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
+                placeholder="API key from Capital Settings → API"
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              Capital API password
+              <input
+                type="password"
+                value={form.api_password}
+                onChange={(e) => setForm((f) => ({ ...f, api_password: e.target.value }))}
+                placeholder="API password (not login password)"
+                autoComplete="new-password"
+              />
+            </label>
+          </div>
           <div className="cp-row">
             <button className="cp-btn primary" type="submit" disabled={busy}>
-              CREATE CLIENT
+              CREATE + CONNECT
             </button>
-            <span className="cp-muted">Then set password + Capital broker on Brokers / Trading.</span>
+            <span className="cp-muted">
+              If Capital fields are filled, broker is saved encrypted and web access is enabled.
+            </span>
           </div>
         </form>
         {msg && <p className={msg.toLowerCase().includes('fail') ? 'cp-error' : 'cp-ok'}>{msg}</p>}
@@ -145,7 +248,9 @@ export function ControlClientsPage() {
             <tbody>
               {rows.map((c) => {
                 const riskOn = c.risk_enabled !== false;
-                const running = String(c.panel_robot_requested || '').toUpperCase() === 'RUNNING';
+                const running =
+                  String(c.robot_status || c.panel_robot_requested || '').toUpperCase() ===
+                  'RUNNING';
                 return (
                   <tr key={c.id}>
                     <td>
@@ -166,15 +271,21 @@ export function ControlClientsPage() {
                         type="button"
                         className={`cp-pill ${riskOn ? 'on' : 'off'}`}
                         onClick={() => void patch(c.id, { risk_enabled: !riskOn })}
-                        title="Admin risk lock — client cannot trade risk when OFF"
+                        title="Admin risk lock — client cannot start when OFF"
                       >
                         {riskOn ? 'RISK ON' : 'RISK OFF'}
                       </button>
                     </td>
                     <td>
                       <span className={`cp-pill ${running ? 'on' : 'off'}`}>
-                        {String(c.panel_robot_requested || 'STOPPED').toUpperCase()}
+                        {String(c.robot_status || c.panel_robot_requested || 'STOPPED').toUpperCase()}
                       </span>
+                      {c.live_trade && (
+                        <div className="cp-muted">
+                          {c.live_trade.display_name || c.live_trade.market} ·{' '}
+                          {Number(c.live_trade.lot_size).toFixed(2)}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div>{c.panel_display_name || c.panel_epic || '—'}</div>
