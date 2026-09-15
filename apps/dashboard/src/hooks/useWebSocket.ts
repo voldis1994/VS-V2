@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react';
 
-const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3000/ws`;
+function wsUrl(): string {
+  return (
+    import.meta.env.VITE_WS_URL ||
+    `ws://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:3000/ws`
+  );
+}
 
 type WsMessage = { type: string; [key: string]: unknown };
 
@@ -10,7 +15,7 @@ let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout>;
 
 function connect() {
-  ws = new WebSocket(WS_URL);
+  ws = new WebSocket(wsUrl());
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data) as WsMessage;

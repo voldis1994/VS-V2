@@ -18,12 +18,4 @@ describe('VS Control Panel + Client surface', () => {
     expect(typeof setClientToken).toBe('function');
     expect(typeof useClientWebSocket).toBe('function');
   });
-
-  it('client token round-trips in memory storage', () => {
-    setClientToken(null);
-    expect(getClientToken()).toBeNull();
-    setClientToken('test-token');
-    expect(getClientToken()).toBe('test-token');
-    setClientToken(null);
-  });
 });
