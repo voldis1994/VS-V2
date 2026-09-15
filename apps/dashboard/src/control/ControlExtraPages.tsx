@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 
 type ClientRow = {
@@ -174,9 +175,9 @@ export function ControlAiPage() {
                   {selected.broker_error || selected.status_reason}
                 </div>
               )}
-              <a className="cp-btn" href={`/brain?client=${selected.id}`}>
-                OPEN FULL BRAIN DESK
-              </a>
+              <Link className="cp-btn" to="/control/ai">
+                AI · THIS CLIENT
+              </Link>
             </div>
           )}
         </section>
@@ -594,14 +595,14 @@ export function ControlSystemPage() {
         {JSON.stringify(data || {}, null, 2)}
       </pre>
       <div className="cp-row" style={{ marginTop: '1rem' }}>
-        <a className="cp-btn" href="/live">
-          LEGACY LIVE DESK
-        </a>
-        <a className="cp-btn" href="/overview">
-          OVERVIEW
-        </a>
-        <a className="cp-btn" href="/client">
-          CLIENT WEB PREVIEW
+        <Link className="cp-btn primary" to="/control/clients">
+          CLIENTS
+        </Link>
+        <Link className="cp-btn" to="/control/ai">
+          AI
+        </Link>
+        <a className="cp-btn" href="/client" target="_blank" rel="noreferrer">
+          CLIENT WEB
         </a>
       </div>
     </div>

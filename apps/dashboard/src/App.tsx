@@ -1,6 +1,4 @@
-import { ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Layout } from './components/Layout';
 import { useWebSocket } from './hooks/useWebSocket';
 import { ControlLayout } from './control/ControlLayout';
 import { ControlMainPage } from './control/ControlMainPage';
@@ -12,47 +10,23 @@ import {
   ControlNewsPage,
   ControlSystemPage,
 } from './control/ControlExtraPages';
-
-import { OverviewPage } from './pages/Overview';
-import { LiveTerminalPage } from './pages/LiveTerminal';
-import { MarketsPage } from './pages/Markets';
-import { BrainPage } from './pages/Brain';
-import { StructurePage } from './pages/Structure';
-import { PatternsPage } from './pages/Patterns';
-import { ScenariosPage } from './pages/Scenarios';
-import { PredictionsPage } from './pages/Predictions';
-import { DecisionsPage } from './pages/Decisions';
-import { PositionsPage } from './pages/Positions';
-import { RiskPage } from './pages/Risk';
-import { ExecutionPage } from './pages/Execution';
-import { LearningPage } from './pages/Learning';
-import { ModelsPage } from './pages/Models';
-import { DiagnosticsPage } from './pages/Diagnostics';
-
-import { MarketReaderPage } from './pages/MarketReaderPage';
-import { TradingPage } from './pages/TradingPage';
-import { ClientsPage } from './pages/ClientsPage';
-import { BrokersPage } from './pages/BrokersPage';
-import { TradesPage } from './pages/TradesPage';
-import { FeedsPage } from './pages/FeedsPage';
-import { SystemPage } from './pages/SystemPage';
-import { LogsPage } from './pages/LogsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { RobotDeskPage } from './pages/RobotDeskPage';
 import { ClientPanelPage } from './pages/ClientPanelPage';
 
-function Desk({ children }: { children: ReactNode }) {
-  return <Layout>{children}</Layout>;
-}
-
+/**
+ * VS SYSTEM — Control Panel is the ONLY admin UI.
+ * Public client site stays at /client.
+ * All legacy "Tactical Desk" routes redirect into /control/*.
+ */
 export default function App() {
   useWebSocket();
 
   return (
     <Routes>
-      <Route path="/robot" element={<RobotDeskPage />} />
+      {/* Public client web (separate product surface) */}
       <Route path="/client" element={<ClientPanelPage />} />
+      <Route path="/client/*" element={<ClientPanelPage />} />
 
+      {/* Admin Control Panel — sole operator UI */}
       <Route path="/control" element={<ControlLayout />}>
         <Route index element={<ControlMainPage />} />
         <Route path="clients" element={<ControlClientsPage />} />
@@ -64,32 +38,36 @@ export default function App() {
       </Route>
 
       <Route path="/" element={<Navigate to="/control" replace />} />
-      <Route path="/live" element={<LiveTerminalPage />} />
-      <Route path="/overview" element={<Desk><OverviewPage /></Desk>} />
-      <Route path="/markets" element={<Desk><MarketsPage /></Desk>} />
-      <Route path="/brain" element={<Desk><BrainPage /></Desk>} />
-      <Route path="/structure" element={<Desk><StructurePage /></Desk>} />
-      <Route path="/patterns" element={<Desk><PatternsPage /></Desk>} />
-      <Route path="/scenarios" element={<Desk><ScenariosPage /></Desk>} />
-      <Route path="/predictions" element={<Desk><PredictionsPage /></Desk>} />
-      <Route path="/decisions" element={<Desk><DecisionsPage /></Desk>} />
-      <Route path="/positions" element={<Desk><PositionsPage /></Desk>} />
-      <Route path="/risk" element={<Desk><RiskPage /></Desk>} />
-      <Route path="/execution" element={<Desk><ExecutionPage /></Desk>} />
-      <Route path="/learning" element={<Desk><LearningPage /></Desk>} />
-      <Route path="/models" element={<Desk><ModelsPage /></Desk>} />
-      <Route path="/diagnostics" element={<Desk><DiagnosticsPage /></Desk>} />
 
-      <Route path="/market" element={<Navigate to="/markets" replace />} />
-      <Route path="/market-legacy" element={<Desk><MarketReaderPage /></Desk>} />
-      <Route path="/trading" element={<Desk><TradingPage /></Desk>} />
+      {/* Legacy Tactical Desk → Control Panel (no dual UI) */}
+      <Route path="/brokers" element={<Navigate to="/control/clients" replace />} />
       <Route path="/clients" element={<Navigate to="/control/clients" replace />} />
-      <Route path="/brokers" element={<Desk><BrokersPage /></Desk>} />
-      <Route path="/trades" element={<Desk><TradesPage /></Desk>} />
-      <Route path="/feeds" element={<Desk><FeedsPage /></Desk>} />
-      <Route path="/system" element={<Desk><SystemPage /></Desk>} />
-      <Route path="/logs" element={<Desk><LogsPage /></Desk>} />
-      <Route path="/settings" element={<Desk><SettingsPage /></Desk>} />
+      <Route path="/trading" element={<Navigate to="/control/clients" replace />} />
+      <Route path="/trades" element={<Navigate to="/control/clients" replace />} />
+      <Route path="/brain" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/robot" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/feeds" element={<Navigate to="/control/feed" replace />} />
+      <Route path="/live" element={<Navigate to="/control" replace />} />
+      <Route path="/overview" element={<Navigate to="/control" replace />} />
+      <Route path="/markets" element={<Navigate to="/control/feed" replace />} />
+      <Route path="/market" element={<Navigate to="/control/feed" replace />} />
+      <Route path="/market-legacy" element={<Navigate to="/control/feed" replace />} />
+      <Route path="/structure" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/patterns" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/scenarios" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/predictions" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/decisions" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/positions" element={<Navigate to="/control" replace />} />
+      <Route path="/risk" element={<Navigate to="/control/clients" replace />} />
+      <Route path="/execution" element={<Navigate to="/control" replace />} />
+      <Route path="/learning" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/models" element={<Navigate to="/control/ai" replace />} />
+      <Route path="/diagnostics" element={<Navigate to="/control/errors" replace />} />
+      <Route path="/system" element={<Navigate to="/control/system" replace />} />
+      <Route path="/logs" element={<Navigate to="/control/errors" replace />} />
+      <Route path="/settings" element={<Navigate to="/control/system" replace />} />
+
+      <Route path="*" element={<Navigate to="/control" replace />} />
     </Routes>
   );
 }

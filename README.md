@@ -21,8 +21,8 @@ market-core (C++)
 control-api (Node/Fastify)
   REST + WebSocket: accounts, brokers, market, brain, decisions, positions, risk, …
        ↓
-dashboard (React/Vite)
-  Overview, Markets, Brain, Decisions, Positions, Risk, Learning, Diagnostics, …
+dashboard (React/Vite) — **VS SYSTEM CONTROL PANEL** at `/control`
+  (legacy Tactical Desk routes redirect here; public client site at `/client`)
 ```
 
 | Path | Role |
