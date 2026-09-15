@@ -144,3 +144,21 @@ TEST(RuntimeModeSwitch, ShadowToLiveAllowsEntriesAgain) {
     EXPECT_TRUE(pipeline.enter_from_decision(ready_long_intent(), strong_long_dual(), 2000.0, 0.2));
     EXPECT_EQ(pipeline.open_positions().size(), 1u);
 }
+
+TEST(RuntimeModeSwitch, PaperClearsAndRefusesLiveGateway) {
+    MockGateway gw;
+    MarketCorePipeline pipeline;
+    pipeline.set_account_equity(50'000.0);
+    pipeline.set_operating_mode(OperatingMode::Live);
+    pipeline.bind_order_gateway(gw);
+    ASSERT_TRUE(pipeline.has_execution());
+
+    // Switching to PAPER must drop any live order gateway (no real broker orders).
+    pipeline.set_operating_mode(OperatingMode::Paper);
+    EXPECT_FALSE(pipeline.has_execution());
+
+    // Re-bind while in PAPER must be refused.
+    pipeline.bind_order_gateway(gw);
+    EXPECT_FALSE(pipeline.has_execution());
+    EXPECT_TRUE(gw.creates.empty());
+}

@@ -13,7 +13,15 @@ bool LiveCapitalBootstrap::prepare(const LiveCapitalBootstrapConfig& cfg) {
     pipe.set_operating_mode(cfg.operating_mode);
     pipe.brain_runtime().configure_from_env();
 
-    if (cfg.enable_execution) {
+    // Hard fail-closed: PAPER/REPLAY never bind a live Capital order gateway.
+    const bool allow_execution =
+        cfg.enable_execution && cfg.operating_mode != OperatingMode::Paper &&
+        cfg.operating_mode != OperatingMode::Replay;
+    if (cfg.enable_execution && !allow_execution) {
+        std::cerr << "LiveCapitalBootstrap: refusing execution bind in PAPER/REPLAY\n";
+    }
+
+    if (allow_execution) {
         gateway_ = std::make_unique<CapitalOrderGateway>(client_);
         pipe.bind_order_gateway(*gateway_);
         pipe.set_broker_healthy(gateway_->healthy());
