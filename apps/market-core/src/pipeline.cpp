@@ -14,12 +14,8 @@ void MarketCorePipeline::configure(const ConfigRegistry& config) {
 }
 
 void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
-    // Hard fail-closed: PAPER/REPLAY never bind a live Capital order gateway.
-    if (mode_ == OperatingMode::Paper || mode_ == OperatingMode::Replay) {
-        execution_.reset();
-        broker_healthy_ = false;
-        return;
-    }
+    // Paper/Replay may bind PaperOrderGateway (simulated fills). Live CapitalOrderGateway
+    // must never be enabled in PAPER/REPLAY — enforced in LiveCapitalBootstrap::prepare.
     execution_ = std::make_unique<ExecutionEngine>(gateway);
     broker_healthy_ = gateway.healthy();
 }
@@ -27,9 +23,9 @@ void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
 void MarketCorePipeline::set_operating_mode(OperatingMode mode) {
     mode_ = mode;
     brain_runtime_.set_operating_mode(mode);
-    if (mode_ == OperatingMode::Replay || mode_ == OperatingMode::Paper) {
+    // Replay clears any prior LIVE gateway; EpisodeReplay rebinds PaperOrderGateway after.
+    if (mode_ == OperatingMode::Replay) {
         execution_.reset();
-        broker_healthy_ = false;
     }
 }
 
