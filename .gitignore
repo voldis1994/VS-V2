@@ -9,6 +9,7 @@ cmake-build-*/
 
 # vcpkg
 vcpkg_installed/
+tools/vcpkg/
 
 # Node
 node_modules/

@@ -29,8 +29,13 @@ Write-Step 'Checking dependencies'
 [void](Ensure-Tool -Name 'node' -WingetId 'OpenJS.NodeJS.LTS' -Required -DryRun:$DryRun)
 [void](Ensure-Tool -Name 'npm' -WingetId 'OpenJS.NodeJS.LTS' -Required -DryRun:$DryRun)
 [void](Ensure-Tool -Name 'cmake' -WingetId 'Kitware.CMake' -Required:(-not $SkipCppBuild) -DryRun:$DryRun)
+[void](Ensure-Tool -Name 'ninja' -WingetId 'Ninja-build.Ninja' -Required:$false -DryRun:$DryRun)
 if (-not $SkipDocker) {
     [void](Ensure-Tool -Name 'docker' -WingetId 'Docker.DockerDesktop' -Required -DryRun:$DryRun)
+}
+if (-not $SkipCppBuild) {
+    Ensure-MsvcBuildTools -DryRun:$DryRun
+    [void](Ensure-Vcpkg -Root $Root -DryRun:$DryRun)
 }
 
 $nodeMajor = 0
@@ -153,19 +158,30 @@ else {
 }
 
 if (-not $SkipCppBuild) {
-    Write-Step 'C++ market-core build'
-    if ($DryRun) { Write-Host '[dry-run] cmake configure + build market-core' }
+    Write-Step 'C++ market-core build (vcpkg provides fmt/spdlog/yaml-cpp/curl/openssl)'
+    if ($DryRun) { Write-Host '[dry-run] cmake configure + build market-core with VCPKG_ROOT' }
     else {
         $cmake = Resolve-Tool -Name 'cmake'
         if (-not $cmake) {
             throw 'cmake not found on PATH after Ensure-Tool (close window and re-run Install.bat)'
         }
+        $toolchain = Get-VcpkgToolchain -Root $Root
+        if (-not $toolchain) {
+            throw 'vcpkg toolchain missing. Ensure-Vcpkg must succeed before cmake (fmt comes from vcpkg).'
+        }
+        if (-not $env:VCPKG_ROOT) {
+            throw 'VCPKG_ROOT is not set — required by CMakePresets.json windows-release'
+        }
+        Write-Ok "cmake toolchain: $toolchain"
+
         $usedPreset = $false
         if (Test-Path -LiteralPath (Join-Path $Root 'CMakePresets.json')) {
             & $cmake --preset windows-release
             if ($LASTEXITCODE -eq 0) {
                 & $cmake --build --preset windows-release --target market-core -j
                 $usedPreset = ($LASTEXITCODE -eq 0)
+            } else {
+                Write-Warn 'cmake --preset windows-release failed; falling back to explicit -B build with vcpkg toolchain'
             }
         }
         if (-not $usedPreset) {
@@ -173,8 +189,19 @@ if (-not $SkipCppBuild) {
             if (-not (Test-Path -LiteralPath $buildDir)) {
                 New-Item -ItemType Directory -Path $buildDir | Out-Null
             }
-            & $cmake -B $buildDir -DMR_BUILD_TESTS=OFF
-            if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
+            # Never configure without vcpkg on Windows — bare find_package(fmt) fails exactly like the Install.bat screenshot.
+            $genArgs = @()
+            if (Resolve-Tool -Name 'ninja') {
+                $genArgs += @('-G', 'Ninja')
+            }
+            & $cmake -B $buildDir @genArgs `
+                -DCMAKE_BUILD_TYPE=Release `
+                -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+                -DVCPKG_TARGET_TRIPLET=x64-windows `
+                -DMR_BUILD_TESTS=OFF
+            if ($LASTEXITCODE -ne 0) {
+                throw 'cmake configure failed (vcpkg toolchain). First run downloads fmt/spdlog/etc — check network, then re-run Install.bat.'
+            }
             & $cmake --build $buildDir --target market-core -j
             if ($LASTEXITCODE -ne 0) { throw 'cmake build market-core failed' }
         }

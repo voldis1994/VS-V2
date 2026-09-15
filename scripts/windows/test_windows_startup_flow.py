@@ -71,6 +71,10 @@ def test_install_flow() -> list[str]:
             "LIVE trading will NOT be started",
             "Start-DockerDeps",
             "Ensure-Tool",
+            "Ensure-Vcpkg",
+            "Get-VcpkgToolchain",
+            "CMAKE_TOOLCHAIN_FILE",
+            "Ensure-MsvcBuildTools",
         ],
         "install.ps1",
     )
@@ -87,6 +91,9 @@ def test_install_flow() -> list[str]:
             "Update-SessionPath",
             "Find-ToolOnDisk",
             "Kitware.CMake",
+            "Ensure-Vcpkg",
+            "Get-VcpkgToolchain",
+            "Ensure-MsvcBuildTools",
         ],
         "common.ps1",
     )
@@ -106,6 +113,11 @@ def test_install_flow() -> list[str]:
         ],
         "Install flow",
     )
+    # Regression: Install.bat screenshot — cmake without vcpkg → missing fmt
+    if re.search(r"cmake\s+-B\s+\$buildDir\s+-DMR_BUILD_TESTS=OFF", ps1) and "CMAKE_TOOLCHAIN_FILE" not in ps1:
+        errs.append("install.ps1: bare cmake -B without CMAKE_TOOLCHAIN_FILE (fmt will be missing on Windows)")
+    if "CMAKE_TOOLCHAIN_FILE" not in ps1:
+        errs.append("install.ps1: missing CMAKE_TOOLCHAIN_FILE (vcpkg) for Windows C++ deps")
     return errs
 
 

@@ -211,6 +211,105 @@ function Get-MarketCoreExe {
     return $null
 }
 
+function Test-MsvcAvailable {
+    Update-SessionPath
+    if (Test-CommandExists 'cl') { return $true }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) { return $false }
+    $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    return [bool]$install
+}
+
+function Ensure-MsvcBuildTools {
+    param([switch]$DryRun)
+    if (Test-MsvcAvailable) {
+        Write-Ok 'MSVC C++ build tools present'
+        return
+    }
+    Write-Warn 'MSVC C++ tools missing (needed to compile market-core)'
+    if ($DryRun) {
+        Write-Host '[dry-run] would winget install Microsoft.VisualStudio.2022.BuildTools (VCTools workload)'
+        return
+    }
+    if (-not (Test-CommandExists 'winget')) {
+        throw 'MSVC Build Tools missing and winget not found. Install "Desktop development with C++" (VS 2022 Build Tools), close this window, re-run Install.bat.'
+    }
+    Write-Step 'Installing Visual Studio 2022 Build Tools (C++ workload) — may take several minutes'
+    $override = '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
+    & winget install -e --id Microsoft.VisualStudio.2022.BuildTools `
+        --accept-package-agreements --accept-source-agreements --disable-interactivity `
+        --override $override
+    Update-SessionPath
+    if (-not (Test-MsvcAvailable)) {
+        throw 'MSVC C++ tools still missing after winget. Install Build Tools manually, open a NEW cmd window, re-run Install.bat.'
+    }
+    Write-Ok 'MSVC C++ build tools available'
+}
+
+# Bootstrap Microsoft vcpkg so CMake can find fmt/spdlog/yaml-cpp/curl/openssl (Windows).
+function Ensure-Vcpkg {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [switch]$DryRun
+    )
+    $toolchainRel = 'scripts\buildsystems\vcpkg.cmake'
+    $existing = $env:VCPKG_ROOT
+    if ($existing -and (Test-Path -LiteralPath (Join-Path $existing $toolchainRel))) {
+        Write-Ok "VCPKG_ROOT=$existing"
+        return $existing
+    }
+
+    $local = Join-Path $Root 'tools\vcpkg'
+    $toolchain = Join-Path $local $toolchainRel
+    if ($DryRun) {
+        Write-Host "[dry-run] would bootstrap vcpkg at $local and set VCPKG_ROOT"
+        $env:VCPKG_ROOT = $local
+        return $local
+    }
+
+    if (-not (Test-Path -LiteralPath $local)) {
+        Write-Step "Cloning vcpkg into $local (provides fmt and other C++ deps)"
+        $git = Resolve-Tool -Name 'git'
+        if (-not $git) { throw 'git required to clone vcpkg' }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $local) -Force | Out-Null
+        & $git clone --depth 1 https://github.com/microsoft/vcpkg.git $local
+        if ($LASTEXITCODE -ne 0) { throw 'git clone vcpkg failed' }
+    }
+
+    $vcpkgExe = Join-Path $local 'vcpkg.exe'
+    if (-not (Test-Path -LiteralPath $vcpkgExe)) {
+        Write-Step 'Bootstrapping vcpkg.exe'
+        $bootstrap = Join-Path $local 'bootstrap-vcpkg.bat'
+        if (-not (Test-Path -LiteralPath $bootstrap)) {
+            throw "Missing $bootstrap — delete tools\vcpkg and re-run Install.bat"
+        }
+        Push-Location $local
+        try {
+            & cmd.exe /c "bootstrap-vcpkg.bat -disableMetrics"
+            if ($LASTEXITCODE -ne 0) { throw 'bootstrap-vcpkg.bat failed' }
+        } finally {
+            Pop-Location
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $toolchain)) {
+        throw "vcpkg toolchain missing: $toolchain"
+    }
+
+    $env:VCPKG_ROOT = $local
+    [Environment]::SetEnvironmentVariable('VCPKG_ROOT', $local, 'Process')
+    Write-Ok "VCPKG_ROOT=$local (fmt/spdlog/yaml-cpp/curl/openssl via manifest vcpkg.json)"
+    return $local
+}
+
+function Get-VcpkgToolchain {
+    param([string]$Root)
+    $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { Join-Path $Root 'tools\vcpkg' }
+    $toolchain = Join-Path $root 'scripts\buildsystems\vcpkg.cmake'
+    if (Test-Path -LiteralPath $toolchain) { return $toolchain }
+    return $null
+}
+
 function Wait-HttpOk {
     param([string]$Url, [int]$Attempts = 40, [int]$DelayMs = 500)
     for ($i = 0; $i -lt $Attempts; $i++) {
