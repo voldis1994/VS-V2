@@ -110,6 +110,7 @@ function Start-LoggedProcess {
         'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
         'REDIS_URL', 'REDIS_HOST', 'REDIS_PORT',
         'CONTROL_API_HOST', 'CONTROL_API_PORT', 'CONTROL_API_URL',
+        'DOTENV_CONFIG_PATH',
         'API_ADMIN_TOKEN', 'ALLOW_INSECURE_ADMIN',
         'CORS_ORIGIN', 'CLIENT_CORS_ORIGIN', 'TRUST_PROXY',
         'CAPITAL_API_KEY', 'CAPITAL_API_PASSWORD', 'CAPITAL_IDENTIFIER', 'CAPITAL_EPIC', 'CAPITAL_BASE_URL',
@@ -133,12 +134,19 @@ function Start-LoggedProcess {
     }
 
     $logPath = Join-Path $logs $LogName
-    $runLine = if ($exe -match '(?i)\.(cmd|bat)$') {
-        'call "{0}" {1} >> "{2}" 2>&1' -f $exe, $Arguments, $logPath
-    } else {
-        '"{0}" {1} >> "{2}" 2>&1' -f $exe, $Arguments, $logPath
-    }
-
+    # Run via a tiny PS1 so stdout shows in the CMD window AND is appended to the log,
+    # while preserving Node/npm exit codes (plain cmd pipes hide exit 1).
+    $exePs = $exe.Replace("'", "''")
+    $logPs = $logPath.Replace("'", "''")
+    $psScript = @"
+`$ErrorActionPreference = 'Continue'
+Write-Host "Running: $exe $Arguments"
+& '$exePs' $Arguments 2>&1 | Tee-Object -FilePath '$logPs' -Append
+exit `$LASTEXITCODE
+"@
+    $psFile = Join-Path $env:TEMP ('vs-v2-run-' + $Title + '.ps1')
+    Set-Content -LiteralPath $psFile -Value $psScript -Encoding ASCII
+    $runLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $psFile + '"' 
     # Visible CMD: title + live tee-like note. /k keeps window open if process exits.
     $cmd = @"
 @echo off
@@ -196,20 +204,24 @@ if (-not (Test-Path -LiteralPath $distJs)) {
         throw 'apps\control-api\dist\index.js missing. Run Install.bat then V2.bat again.'
     }
 }
-$nodeArgs = if (Test-Path -LiteralPath $envPaper) {
-    '--env-file="' + $envPaper + '" "' + $distJs + '"'
-} else {
-    '"' + $distJs + '"'
+# Do NOT use --env-file="..." on Windows cmd: quotes become part of the path and Node exits 1 immediately.
+# DOTENV_CONFIG_PATH makes import 'dotenv/config' load .env.paper; bat also sets DB_* from Import-DotEnvFile.
+$nodeArgs = '"' + $distJs + '"'
+$apiExtra = @{
+    OPERATING_MODE         = 'PAPER'
+    LIVE_TRADING_ENABLED   = 'false'
+    CONTROL_API_HOST       = '0.0.0.0'
+    CONTROL_API_PORT       = '3000'
+}
+if (Test-Path -LiteralPath $envPaper) {
+    $apiExtra['DOTENV_CONFIG_PATH'] = $envPaper
 }
 Write-Ok "control-api via node.exe (not npm): $nodeExe"
+Write-Host "  entry: $distJs"
+if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$envPaper" }
 Start-LoggedProcess -Title 'VS-ControlAPI' -FilePath $nodeExe `
     -Arguments $nodeArgs `
-    -WorkingDirectory $Root -LogName 'control-api.paper.log' -ExtraEnv @{
-        OPERATING_MODE       = 'PAPER'
-        LIVE_TRADING_ENABLED = 'false'
-        CONTROL_API_HOST     = '0.0.0.0'
-        CONTROL_API_PORT     = '3000'
-    } | Out-Null
+    -WorkingDirectory $Root -LogName 'control-api.paper.log' -ExtraEnv $apiExtra | Out-Null
 
 # --- 2) Market Core (separate CMD) ---
 $exe = Get-MarketCoreExe -Root $Root

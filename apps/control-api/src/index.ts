@@ -85,6 +85,7 @@ async function waitForDatabase(maxAttempts = 30, delayMs = 1000): Promise<void> 
 }
 
 async function main() {
+  console.log(`Control API booting mode=${process.env.OPERATING_MODE || ''} port=${PORT} host=${HOST} dotenv=${process.env.DOTENV_CONFIG_PATH || '(default .env)'}`);
   if (process.env.LIVE_TRADING_ENABLED === undefined || process.env.LIVE_TRADING_ENABLED === '') {
     process.env.LIVE_TRADING_ENABLED = 'false';
   }
