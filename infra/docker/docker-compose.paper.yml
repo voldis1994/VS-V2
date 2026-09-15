@@ -1,0 +1,37 @@
+# PAPER overlay — use with:
+#   docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.paper.yml up -d
+# Forces fail-closed PAPER; never enables LIVE trading or broker orders.
+# Migrations run on control-api boot (runMigrations). Do not arm SHADOW/LIVE.
+
+services:
+  control-api:
+    environment:
+      OPERATING_MODE: PAPER
+      LIVE_TRADING_ENABLED: "false"
+      MARKET_CORE_BRIDGE: "true"
+      CAPITAL_BASE_URL: ${CAPITAL_BASE_URL:-https://api-capital.backend-capital.com}
+      CAPITAL_ENVIRONMENT: live
+      CAPITAL_API_KEY: ${CAPITAL_API_KEY:-}
+      CAPITAL_API_PASSWORD: ${CAPITAL_API_PASSWORD:-}
+      CAPITAL_IDENTIFIER: ${CAPITAL_IDENTIFIER:-}
+      CAPITAL_EPIC: ${CAPITAL_EPIC:-}
+      PIPELINE_TOKEN: ${PIPELINE_TOKEN:-CHANGE_ME_PIPELINE_TOKEN}
+      CONTROL_API_URL: http://control-api:3000
+
+  market-core:
+    environment:
+      OPERATING_MODE: PAPER
+      LIVE_TRADING_ENABLED: "false"
+      CONTROL_API_URL: http://control-api:3000
+      PIPELINE_TOKEN: ${PIPELINE_TOKEN:-CHANGE_ME_PIPELINE_TOKEN}
+      CAPITAL_API_KEY: ${CAPITAL_API_KEY:-}
+      CAPITAL_API_PASSWORD: ${CAPITAL_API_PASSWORD:-}
+      CAPITAL_IDENTIFIER: ${CAPITAL_IDENTIFIER:-}
+      CAPITAL_EPIC: ${CAPITAL_EPIC:-}
+      CAPITAL_BASE_URL: ${CAPITAL_BASE_URL:-https://api-capital.backend-capital.com}
+    # Data-only PAPER path — never --mode LIVE / SHADOW
+    command: ["./build/apps/market-core/market-core", "--mode", "PAPER"]
+
+  dashboard:
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}

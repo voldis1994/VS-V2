@@ -9,6 +9,9 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "dev": "npm run dev --workspace=@vs-v2/control-api & npm run dev --workspace=@vs-v2/dashboard",
-    "test": "npm test --workspaces"
+    "test": "npm test --workspaces",
+    "migrate": "npm run migrate --workspace=@vs-v2/control-api",
+    "preflight:paper": "bash scripts/preflight-paper.sh",
+    "start:paper": "bash scripts/start-paper.sh"
   }
 }

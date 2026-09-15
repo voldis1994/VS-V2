@@ -144,3 +144,30 @@ TEST(RuntimeModeSwitch, ShadowToLiveAllowsEntriesAgain) {
     EXPECT_TRUE(pipeline.enter_from_decision(ready_long_intent(), strong_long_dual(), 2000.0, 0.2));
     EXPECT_EQ(pipeline.open_positions().size(), 1u);
 }
+
+TEST(RuntimeModeSwitch, PaperWithoutLiveGatewayDoesNotCreateBrokerOrders) {
+    // PAPER deploy path leaves CapitalOrderGateway unbound; pending only, no broker creates.
+    MockGateway gw;
+    MarketCorePipeline pipeline;
+    pipeline.set_account_equity(50'000.0);
+    pipeline.set_operating_mode(OperatingMode::Paper);
+    EXPECT_FALSE(pipeline.has_execution());
+
+    EXPECT_TRUE(pipeline.enter_from_decision(ready_long_intent(), strong_long_dual(), 2000.0, 0.2));
+    EXPECT_TRUE(pipeline.open_positions().empty());
+    EXPECT_EQ(pipeline.drain_pending_intents().size(), 1u);
+    EXPECT_TRUE(gw.creates.empty());
+}
+
+TEST(RuntimeModeSwitch, ReplayClearsPriorLiveGateway) {
+    MockGateway gw;
+    MarketCorePipeline pipeline;
+    pipeline.set_operating_mode(OperatingMode::Live);
+    pipeline.bind_order_gateway(gw);
+    ASSERT_TRUE(pipeline.has_execution());
+
+    // Switching to Replay drops the prior LIVE gateway (no broker orders on replay path).
+    pipeline.set_operating_mode(OperatingMode::Replay);
+    EXPECT_FALSE(pipeline.has_execution());
+    EXPECT_TRUE(gw.creates.empty());
+}

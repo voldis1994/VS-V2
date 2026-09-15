@@ -23,8 +23,9 @@ struct LiveCapitalBootstrapConfig {
 };
 
 /**
- * Stage-10 LIVE wiring: bind Capital execution, hydrate open positions,
- * load production weights, reconcile broker book, then run multi-clock path.
+ * Capital bootstrap for LIVE (execution) and PAPER (market data only).
+ * PAPER/REPLAY: never bind CapitalOrderGateway even if enable_execution is set.
+ * LIVE/SHADOW: may bind execution when enable_execution is true.
  * Never invents BUY/SELL — only connects the existing Stage 1–9 chain.
  */
 class LiveCapitalBootstrap {

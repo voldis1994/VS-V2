@@ -9,6 +9,7 @@ import {
   switchRuntimeMode,
   RUNTIME_MODES,
 } from '../services/runtimeMode.js';
+import { runPaperPreflight } from '../services/paperPreflight.js';
 
 function liveEnabled(): boolean {
   const v = process.env.LIVE_TRADING_ENABLED;
@@ -140,6 +141,9 @@ export async function registerSystemRoutes(
   });
 
   app.get('/api/system/runtime-mode', async () => getRuntimeModeState());
+
+  /** PAPER deploy health/preflight — never arms LIVE and never sends broker orders. */
+  app.get('/api/system/preflight', async () => runPaperPreflight());
 
   app.post('/api/system/runtime-mode', async (request, reply) => {
     const body = request.body as {

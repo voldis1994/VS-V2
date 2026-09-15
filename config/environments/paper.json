@@ -1,4 +1,18 @@
 {
   "mode": "PAPER",
-  "live_trading": false
+  "operating_mode": "PAPER",
+  "live_trading": false,
+  "live_trading_enabled": false,
+  "market_core_bridge": true,
+  "capital": {
+    "market_data": "live",
+    "execution": "disabled",
+    "base_url": "https://api-capital.backend-capital.com",
+    "environment": "live"
+  },
+  "fail_closed": {
+    "broker_orders": true,
+    "live_entries": true,
+    "require_confirm_for_live": true
+  }
 }
