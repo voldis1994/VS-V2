@@ -76,6 +76,70 @@ function Test-CommandExists([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Update-SessionPath {
+    # winget installs often update Machine/User PATH, but the current cmd/powershell
+    # session keeps the old PATH — refresh so newly installed tools are visible.
+    $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ($machine -or $user) {
+        $env:Path = @($machine, $user) -join ';'
+    }
+}
+
+function Find-ToolOnDisk {
+    param([string]$Name)
+    $exe = if ($Name -match '\.exe$') { $Name } else { "$Name.exe" }
+    $dirs = @()
+
+    if ($Name -match '^(cmake)(\.exe)?$') {
+        $dirs += @(
+            "${env:ProgramFiles}\CMake\bin",
+            "${env:ProgramFiles(x86)}\CMake\bin",
+            "${env:LOCALAPPDATA}\Programs\CMake\bin",
+            "${env:ProgramFiles}\Kitware\CMake\bin"
+        )
+        # winget package layouts sometimes version the folder
+        foreach ($root in @("${env:ProgramFiles}\CMake", "${env:ProgramFiles(x86)}\CMake", "${env:LOCALAPPDATA}\Programs")) {
+            if (Test-Path -LiteralPath $root) {
+                Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+                    ForEach-Object {
+                        $bin = Join-Path $_.FullName 'bin'
+                        if (Test-Path -LiteralPath (Join-Path $bin $exe)) { $dirs += $bin }
+                    }
+            }
+        }
+    } elseif ($Name -match '^(git)(\.exe)?$') {
+        $dirs += @("${env:ProgramFiles}\Git\cmd", "${env:ProgramFiles(x86)}\Git\cmd")
+    } elseif ($Name -match '^(node|npm)(\.exe)?$') {
+        $dirs += @("${env:ProgramFiles}\nodejs", "${env:LOCALAPPDATA}\Programs\nodejs")
+    } elseif ($Name -match '^(docker)(\.exe)?$') {
+        $dirs += @(
+            "${env:ProgramFiles}\Docker\Docker\resources\bin",
+            "${env:ProgramFiles}\Docker\Docker\resources"
+        )
+    }
+
+    foreach ($dir in ($dirs | Select-Object -Unique)) {
+        $candidate = Join-Path $dir $exe
+        if (Test-Path -LiteralPath $candidate) {
+            if ($env:Path -notlike "*$dir*") {
+                $env:Path = "$dir;$env:Path"
+            }
+            return $candidate
+        }
+    }
+    return $null
+}
+
+function Resolve-Tool {
+    param([string]$Name)
+    Update-SessionPath
+    if (Test-CommandExists $Name) {
+        return (Get-Command $Name -ErrorAction SilentlyContinue).Source
+    }
+    return (Find-ToolOnDisk -Name $Name)
+}
+
 function Ensure-Tool {
     param(
         [string]$Name,
@@ -83,25 +147,50 @@ function Ensure-Tool {
         [switch]$Required,
         [switch]$DryRun
     )
-    if (Test-CommandExists $Name) {
-        Write-Ok "$Name present"
+    $resolved = Resolve-Tool -Name $Name
+    if ($resolved) {
+        Write-Ok "$Name present ($resolved)"
         return $true
     }
     Write-Warn "$Name missing"
     if ($DryRun) {
-        Write-Host "  [dry-run] would winget install $WingetId"
+        Write-Host "  [dry-run] would winget install $WingetId (then refresh PATH / probe install dirs)"
         return (-not $Required)
     }
     if ($WingetId -and (Test-CommandExists 'winget')) {
         Write-Step "Installing $Name via winget ($WingetId)"
-        & winget install -e --id $WingetId --accept-package-agreements --accept-source-agreements
-        if (Test-CommandExists $Name) {
-            Write-Ok "$Name installed"
+        $wingetArgs = @(
+            'install', '-e', '--id', $WingetId,
+            '--accept-package-agreements', '--accept-source-agreements',
+            '--disable-interactivity'
+        )
+        & winget @wingetArgs
+        $wingetCode = $LASTEXITCODE
+        # 0 = success, -1978335189 (0x8A15002B) often means already installed
+        if ($wingetCode -ne 0 -and $wingetCode -ne -1978335189) {
+            Write-Warn "winget exit code $wingetCode for $WingetId (will still probe PATH/install dirs)"
+        }
+        Update-SessionPath
+        Start-Sleep -Seconds 1
+        $resolved = Resolve-Tool -Name $Name
+        if ($resolved) {
+            Write-Ok "$Name available after install ($resolved)"
             return $true
         }
+    } elseif ($WingetId) {
+        Write-Warn 'winget not found — cannot auto-install; install the tool manually'
     }
+
     if ($Required) {
-        throw "Required tool missing: $Name. Install it, then re-run Install.bat. winget id: $WingetId"
+        $hint = switch -Regex ($Name) {
+            '^cmake' {
+                'Install CMake (add to PATH), or: winget install -e --id Kitware.CMake — then close this window and re-run Install.bat'
+            }
+            default {
+                "Install it, close this window, then re-run Install.bat. winget id: $WingetId"
+            }
+        }
+        throw "Required tool missing: $Name. $hint"
     }
     return $false
 }
@@ -186,8 +275,10 @@ function Start-DockerDeps {
     param([string]$Root, [switch]$DryRun)
     $compose = Join-Path $Root 'infra\docker\docker-compose.yml'
     if (-not (Test-Path -LiteralPath $compose)) { throw "Missing $compose" }
-    if (-not (Test-CommandExists 'docker')) {
-        throw 'Docker not found. Install Docker Desktop, start it, then re-run.'
+    # Same class of bug as cmake: docker may be installed but missing from this session PATH.
+    $dockerExe = Resolve-Tool -Name 'docker'
+    if (-not $dockerExe) {
+        throw 'Docker not found. Install Docker Desktop, start it, close this window, then re-run.'
     }
     if ($DryRun) {
         Write-Host '[dry-run] docker compose -f infra/docker/docker-compose.yml up -d postgres redis'

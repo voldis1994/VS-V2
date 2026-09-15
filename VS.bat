@@ -333,9 +333,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='!ROOT!\.env'; $k='%~
 exit /b 0
 
 :try_build_core
+REM Refresh PATH from registry (winget may have installed cmake in another session)
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"`) do set "PATH=%%P"
 where cmake >nul 2>&1
 if errorlevel 1 (
-  echo [WARN] CMake nav PATH
+  if exist "%ProgramFiles%\CMake\bin\cmake.exe" set "PATH=%ProgramFiles%\CMake\bin;%PATH%"
+  if exist "%ProgramFiles(x86)%\CMake\bin\cmake.exe" set "PATH=%ProgramFiles(x86)%\CMake\bin;%PATH%"
+  if exist "%LOCALAPPDATA%\Programs\CMake\bin\cmake.exe" set "PATH=%LOCALAPPDATA%\Programs\CMake\bin;%PATH%"
+)
+where cmake >nul 2>&1
+if errorlevel 1 (
+  echo [WARN] CMake nav PATH (pec winget aizver logu un palaid velreiz, vai: winget install -e --id Kitware.CMake)
   exit /b 1
 )
 set "VSWHERE=%SystemDrive%\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"

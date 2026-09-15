@@ -83,9 +83,17 @@ def test_install_flow() -> list[str]:
             "broker_orders_forbidden",
             "Get-MarketCoreExe",
             "Start-DockerDeps",
+            "Resolve-Tool",
+            "Update-SessionPath",
+            "Find-ToolOnDisk",
+            "Kitware.CMake",
         ],
         "common.ps1",
     )
+    if "Resolve-Tool -Name 'docker'" not in common and 'Resolve-Tool -Name "docker"' not in common:
+        # PowerShell single-quoted form
+        if "Resolve-Tool -Name 'docker'" not in common:
+            errs.append("common.ps1: Start-DockerDeps should Resolve-Tool docker (same PATH bug class as cmake)")
     errs += must_not_match(
         bat + "\n" + ps1,
         [
@@ -240,6 +248,17 @@ def test_no_live_order_paths() -> list[str]:
     return errs
 
 
+def test_vs_bat_cmake_path_probe() -> list[str]:
+    """Legacy VS.bat had the same 'cmake missing from PATH' class of bug."""
+    bat = read("VS.bat")
+    errs: list[str] = []
+    if "ProgramFiles}\\CMake\\bin" not in bat and r"ProgramFiles%\CMake\bin" not in bat:
+        errs.append("VS.bat: missing CMake Program Files PATH probe")
+    if "GetEnvironmentVariable('Path','Machine')" not in bat:
+        errs.append("VS.bat: missing Machine/User PATH refresh before cmake")
+    return errs
+
+
 def main() -> int:
     os.environ["OPERATING_MODE"] = "PAPER"
     os.environ["LIVE_TRADING_ENABLED"] = "false"
@@ -251,6 +270,7 @@ def main() -> int:
         ("simulate_install", simulate_install_dry_run),
         ("simulate_v2", simulate_v2_dry_run),
         ("no_live_orders", test_no_live_order_paths),
+        ("vs_bat_cmake_path", test_vs_bat_cmake_path_probe),
     ]
     failed = 0
     for name, fn in suites:
