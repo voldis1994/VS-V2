@@ -120,6 +120,8 @@ def test_install_flow() -> list[str]:
         # PowerShell single-quoted form
         if "Resolve-Tool -Name 'docker'" not in common:
             errs.append("common.ps1: Start-DockerDeps should Resolve-Tool docker (same PATH bug class as cmake)")
+    if "RootIf" in ps1 or "Rootif" in ps1:
+        errs.append("start-v2.ps1: fused $Rootif typo")
     errs += must_not_match(
         bat + "\n" + ps1,
         [
@@ -191,6 +193,8 @@ def test_v2_flow() -> list[str]:
         "start-v2.ps1",
     )
     # Daily launcher must not reinstall
+    if "RootIf" in ps1 or "Rootif" in ps1:
+        errs.append("start-v2.ps1: fused $Rootif typo")
     errs += must_not_match(
         bat + "\n" + ps1,
         [
