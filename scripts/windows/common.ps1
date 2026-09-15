@@ -253,25 +253,48 @@ function Ensure-Vcpkg {
         [switch]$DryRun
     )
     $toolchainRel = 'scripts\buildsystems\vcpkg.cmake'
-    $existing = $env:VCPKG_ROOT
-    if ($existing -and (Test-Path -LiteralPath (Join-Path $existing $toolchainRel))) {
-        Write-Ok "VCPKG_ROOT=$existing"
-        return $existing
-    }
-
     $local = Join-Path $Root 'tools\vcpkg'
     $toolchain = Join-Path $local $toolchainRel
+
+    # Prefer repo-local tools\vcpkg so Install.bat is self-contained.
+    if ($env:VCPKG_ROOT -and (Test-Path -LiteralPath (Join-Path $env:VCPKG_ROOT $toolchainRel))) {
+        if ($env:VCPKG_ROOT -ne $local) {
+            Write-Warn "Using existing VCPKG_ROOT=$($env:VCPKG_ROOT)"
+            return $env:VCPKG_ROOT
+        }
+    }
+
     if ($DryRun) {
         Write-Host "[dry-run] would bootstrap vcpkg at $local and set VCPKG_ROOT"
         $env:VCPKG_ROOT = $local
         return $local
     }
 
-    if (-not (Test-Path -LiteralPath $local)) {
+    $git = Resolve-Tool -Name 'git'
+    if (-not $git) { throw 'git required to clone vcpkg' }
+
+    # Broken shallow clones from earlier Install attempts cause:
+    #   path versions/baseline.json exists on disk, but not in <builtin-baseline>
+    # Re-clone cleanly if the tree looks incomplete.
+    $needsClone = -not (Test-Path -LiteralPath $local)
+    if (-not $needsClone) {
+        $baselineOnDisk = Test-Path -LiteralPath (Join-Path $local 'versions\baseline.json')
+        $hasExe = Test-Path -LiteralPath (Join-Path $local 'vcpkg.exe')
+        # Prior Install used shallow clone + stale builtin-baseline -> broken. If baseline.json
+        # is missing at HEAD or toolchain is missing, wipe and re-clone.
+        if ((-not $baselineOnDisk) -or (-not (Test-Path -LiteralPath $toolchain))) {
+            Write-Warn 'Repairing tools\vcpkg (incomplete/broken clone from earlier Install)'
+            Remove-Item -LiteralPath $local -Recurse -Force -ErrorAction SilentlyContinue
+            $needsClone = $true
+        } elseif (-not $hasExe) {
+            Write-Warn 'tools\vcpkg present but vcpkg.exe missing - will bootstrap'
+        }
+    }
+
+    if ($needsClone) {
         Write-Step "Cloning vcpkg into $local (provides fmt and other C++ deps)"
-        $git = Resolve-Tool -Name 'git'
-        if (-not $git) { throw 'git required to clone vcpkg' }
         New-Item -ItemType Directory -Path (Split-Path -Parent $local) -Force | Out-Null
+        # Full history so builtin-baseline commits resolve; depth-1 breaks baseline lookups.
         & $git clone --depth 1 https://github.com/microsoft/vcpkg.git $local
         if ($LASTEXITCODE -ne 0) { throw 'git clone vcpkg failed' }
     }
@@ -296,6 +319,16 @@ function Ensure-Vcpkg {
         throw "vcpkg toolchain missing: $toolchain"
     }
 
+    # Align manifest baseline to this vcpkg checkout (avoids stale builtin-baseline / shallow errors).
+    Push-Location $Root
+    try {
+        Write-Step 'Aligning vcpkg.json baseline to local vcpkg checkout'
+        & $vcpkgExe x-update-baseline --add-initial-baseline 2>$null
+        # Non-zero is OK if baseline already present and current; ignore soft failures.
+    } finally {
+        Pop-Location
+    }
+
     $env:VCPKG_ROOT = $local
     [Environment]::SetEnvironmentVariable('VCPKG_ROOT', $local, 'Process')
     Write-Ok "VCPKG_ROOT=$local (fmt/spdlog/yaml-cpp/curl/openssl via manifest vcpkg.json)"
@@ -308,6 +341,48 @@ function Get-VcpkgToolchain {
     $toolchain = Join-Path $root 'scripts\buildsystems\vcpkg.cmake'
     if (Test-Path -LiteralPath $toolchain) { return $toolchain }
     return $null
+}
+
+# Import MSVC environment (cl.exe / link.exe) into this PowerShell process.
+function Enter-VsDevShell {
+    param([switch]$DryRun)
+    if (Test-CommandExists 'cl') {
+        Write-Ok 'MSVC compiler (cl) already on PATH'
+        return
+    }
+    if ($DryRun) {
+        Write-Host '[dry-run] would import VsDevCmd.bat environment'
+        return
+    }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        throw 'vswhere.exe not found. Install VS 2022 Build Tools (C++), close window, re-run Install.bat.'
+    }
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if (-not $vsPath) {
+        throw 'MSVC VC Tools not installed. Install.bat should have run Ensure-MsvcBuildTools - install Build Tools manually and retry.'
+    }
+    $vsDevCmd = Join-Path $vsPath 'Common7\Tools\VsDevCmd.bat'
+    if (-not (Test-Path -LiteralPath $vsDevCmd)) {
+        throw "VsDevCmd.bat missing under $vsPath"
+    }
+    Write-Step 'Importing Visual Studio developer environment (x64)'
+    # Capture env after VsDevCmd and apply to current process.
+    $cmd = "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64 >nul && set"
+    $output = & cmd.exe /c $cmd
+    foreach ($line in $output) {
+        if ($line -match '^(.*?)=(.*)$') {
+            $name = $Matches[1]
+            $value = $Matches[2]
+            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+    Update-SessionPath
+    if (-not (Test-CommandExists 'cl')) {
+        throw 'cl.exe still not on PATH after VsDevCmd. Open "x64 Native Tools Command Prompt", cd to repo, run Install.bat.'
+    }
+    Write-Ok 'MSVC environment loaded (cl on PATH)'
 }
 
 function Wait-HttpOk {
