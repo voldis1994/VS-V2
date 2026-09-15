@@ -5,6 +5,7 @@ const PUBLIC_PATHS = [
   '/health',
   '/api/system/status',
   '/api/system/mode',
+  '/api/system/preflight',
   '/api/client-auth/',
   '/api/client/',
   '/ws/client',
@@ -43,10 +44,15 @@ export async function authMiddleware(
   const expected = process.env.API_ADMIN_TOKEN;
 
   if (!expected || expected === 'CHANGE_ME_ADMIN_TOKEN') {
-    if (process.env.NODE_ENV === 'production') {
-      reply.code(401).send({ error: 'API token not configured' });
+    // Fail-closed unless explicitly opted into insecure local admin (tests/dev only).
+    if (process.env.ALLOW_INSECURE_ADMIN === 'true') {
       return;
     }
+    reply.code(401).send({
+      error: 'API token not configured',
+      message:
+        'Set a real API_ADMIN_TOKEN (Install.bat generates one) or ALLOW_INSECURE_ADMIN=true for local-only insecure mode.',
+    });
     return;
   }
 

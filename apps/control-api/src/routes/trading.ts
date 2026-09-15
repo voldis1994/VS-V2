@@ -4,6 +4,7 @@ import { decrypt } from '../security/encryption.js';
 import { logAudit } from '../services/audit.js';
 import { getInstrumentById } from '../config/instruments.js';
 import { fetchAllCapitalMarkets, acquireCapitalSession, createCapitalPosition } from '../services/capitalCom.js';
+import { assertLiveOrdersAllowed } from '../services/liveOrderGate.js';
 
 export async function ensureBrokerAccount(connectionId: number, displayName: string): Promise<number> {
   const existing = await pool.query(
@@ -490,6 +491,11 @@ export async function registerTradingRoutes(app: FastifyInstance): Promise<void>
     }
     if (!Number.isFinite(size) || size <= 0) {
       return reply.code(400).send({ error: 'size must be > 0', message: 'size must be > 0' });
+    }
+
+    const gate = assertLiveOrdersAllowed();
+    if (!gate.allowed) {
+      return reply.code(gate.statusCode).send({ error: gate.error, message: gate.message });
     }
 
     try {

@@ -16,36 +16,37 @@ export async function registerSettingsRoutes(app: FastifyInstance): Promise<void
     primary_horizon_ms: 10000,
     entry_ttl_ms: 2000,
     log_level: process.env.LOG_LEVEL || 'info',
+    runtime_mode_path: '/api/system/runtime-mode',
   }));
 
-  app.put('/api/settings', async (request) => {
+  /**
+   * Settings may update non-arming prefs only (log level).
+   * OPERATING_MODE / LIVE_TRADING_ENABLED must go through POST /api/system/runtime-mode
+   * (confirm + health gates) — never via this PUT.
+   */
+  app.put('/api/settings', async (request, reply) => {
     const body = request.body as {
       log_level?: string;
       live_trading_enabled?: boolean;
       operating_mode?: string;
     };
 
+    if (typeof body.live_trading_enabled === 'boolean' || typeof body.operating_mode === 'string') {
+      return reply.code(400).send({
+        error: 'Use POST /api/system/runtime-mode to change operating mode or arm LIVE',
+        message:
+          'PUT /api/settings cannot set OPERATING_MODE or LIVE_TRADING_ENABLED. ' +
+          'Use POST /api/system/runtime-mode with confirm=true (fail-closed health gates).',
+        runtime_mode_path: '/api/system/runtime-mode',
+      });
+    }
+
     if (body.log_level) {
+      const prev = process.env.LOG_LEVEL || 'info';
       process.env.LOG_LEVEL = body.log_level;
-    }
-
-    if (typeof body.live_trading_enabled === 'boolean') {
-      process.env.LIVE_TRADING_ENABLED = body.live_trading_enabled ? 'true' : 'false';
-      await logAudit(
-        'admin',
-        body.live_trading_enabled ? 'live_enabled' : 'live_disabled',
-        'settings',
-        'LIVE_TRADING_ENABLED',
-        null,
-        { live_trading_enabled: body.live_trading_enabled }
-      );
-    }
-
-    if (typeof body.operating_mode === 'string') {
-      const allowed = ['PAPER', 'SHADOW', 'LIVE'];
-      if (allowed.includes(body.operating_mode)) {
-        process.env.OPERATING_MODE = body.operating_mode;
-      }
+      await logAudit('admin', 'log_level_updated', 'settings', 'LOG_LEVEL', { log_level: prev }, {
+        log_level: body.log_level,
+      });
     }
 
     return {

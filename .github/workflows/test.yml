@@ -33,5 +33,7 @@ jobs:
         with: { node-version: '22' }
       - run: npm install
       - run: npm test --workspace=@vs-v2/control-api
+      - name: Windows startup flow (PAPER fail-closed, no LIVE)
+        run: npm run test:windows-startup
       - run: python3 -m pip install --user -r requirements/requirements-dev.txt
       - run: PYTHONPATH=. python3 -m pytest ai/tests -q

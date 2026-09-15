@@ -35,6 +35,16 @@ if (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Pa
 elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
 Enforce-PaperFailClosed
 Assert-PaperFailClosed
+# Admin API token: dashboard Vite proxy injects x-admin-token from this process env.
+if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKEN') {
+    if ($env:ALLOW_INSECURE_ADMIN -ne 'true') {
+        Write-Warn 'API_ADMIN_TOKEN is CHANGE_ME/empty — control-api will refuse admin routes. Re-run Install.bat or set ALLOW_INSECURE_ADMIN=true for local-only.'
+    }
+} else {
+    Write-Ok 'API_ADMIN_TOKEN loaded for dashboard proxy'
+}
+
+
 Write-Ok 'Forced OPERATING_MODE=PAPER LIVE_TRADING_ENABLED=false'
 
 $logs = Join-Path $Root 'logs'
@@ -160,6 +170,7 @@ if (-not $NoBrowser -and -not $DryRun) {
 }
 
 Assert-PaperFailClosed
+
 if (-not $DryRun) {
     try { Invoke-PaperPreflight -Root $Root } catch { Write-Warn "Final preflight: $($_.Exception.Message)" }
 }
