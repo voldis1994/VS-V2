@@ -149,6 +149,31 @@ function Resolve-Tool {
     return (Find-ToolOnDisk -Name $Name)
 }
 
+
+function Get-SystemNodeExe {
+    $n = Resolve-Tool -Name 'node'
+    if (-not $n) { $n = Join-Path ${env:ProgramFiles} 'nodejs\node.exe' }
+    if (-not (Test-Path -LiteralPath $n)) {
+        throw "node.exe not found. Install Node.js 20+ LTS (winget install OpenJS.NodeJS.LTS), open NEW cmd, re-run."
+    }
+    # Refuse repo-local shims
+    if ($n -match '(?i)[\\/]node_modules[\\/]') {
+        throw "Refusing project-local node shim: $n"
+    }
+    return $n
+}
+
+function Get-SystemNpmCliJs {
+    # Bypass npm.cmd / npm.ps1 entirely. Those scripts call npm-prefix.js and can
+    # resolve prefix to the repo (then look for <repo>\node_modules\npm\bin\npm-cli.js).
+    $nodeDir = Split-Path -Parent (Get-SystemNodeExe)
+    $cli = Join-Path $nodeDir 'node_modules\npm\bin\npm-cli.js'
+    if (-not (Test-Path -LiteralPath $cli)) {
+        throw "System npm-cli.js missing at $cli - repair Node.js install."
+    }
+    return $cli
+}
+
 function Ensure-Tool {
     param(
         [string]$Name,
