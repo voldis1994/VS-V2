@@ -311,7 +311,8 @@ if ($DryRun) {
 
 # --- 2) Market Core (separate CMD) ---
 # Control API uses node-only CMD above (never Start-LoggedProcess / npm).
-$exe = Get-MarketCoreExe -Root $Rootif ($SkipMarketCore) {
+$exe = Get-MarketCoreExe -Root $Root
+if ($SkipMarketCore) {
     Write-Warn 'SkipMarketCore set - Market Core CMD will not open'
 } elseif (-not $exe -and -not $DryRun) {
     throw 'market-core binary not found. Run Install.bat first.'
