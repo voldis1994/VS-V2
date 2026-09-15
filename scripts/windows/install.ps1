@@ -37,6 +37,11 @@ if (-not $SkipCppBuild) {
     Ensure-MsvcBuildTools -DryRun:$DryRun
     Enter-VsDevShell -DryRun:$DryRun
     [void](Ensure-Vcpkg -Root $Root -DryRun:$DryRun)
+    # Re-assert local VCPKG_ROOT after Ensure-Vcpkg (VS installers often export their own).
+    # Use Join-Path parts so path never depends on a literal "\v" sequence in source.
+    $env:VCPKG_ROOT = Join-Path (Join-Path $Root 'tools') 'vcpkg'
+    Remove-Item Env:CMAKE_TOOLCHAIN_FILE -ErrorAction SilentlyContinue
+    Write-Ok "VCPKG_ROOT forced local: $env:VCPKG_ROOT"
 }
 
 $nodeMajor = 0
@@ -159,66 +164,39 @@ else {
 }
 
 if (-not $SkipCppBuild) {
-    Write-Step 'C++ market-core build (vcpkg provides fmt/spdlog/yaml-cpp/curl/openssl)'
-    if ($DryRun) { Write-Host '[dry-run] cmake configure + build market-core with VCPKG_ROOT' }
+    Write-Step 'C++ market-core build (forced local tools\vcpkg + VsDevCmd + Ninja)'
+    if ($DryRun) { Write-Host '[dry-run] Invoke-MarketCoreBuild' }
     else {
-        # Compiler env must be loaded before cmake/ninja (fixes CMAKE_CXX_COMPILER not set).
+        # Never let VS BuildTools vcpkg hijack the toolchain.
+        $localVcpkg = Join-Path (Join-Path $Root 'tools') 'vcpkg'
+        $env:VCPKG_ROOT = $localVcpkg
+        [Environment]::SetEnvironmentVariable('VCPKG_ROOT', $localVcpkg, 'Process')
+        Remove-Item Env:CMAKE_TOOLCHAIN_FILE -ErrorAction SilentlyContinue
+
         Enter-VsDevShell
 
         $cmake = Resolve-Tool -Name 'cmake'
-        if (-not $cmake) {
-            throw 'cmake not found on PATH after Ensure-Tool (close window and re-run Install.bat)'
-        }
+        if (-not $cmake) { throw 'cmake not found on PATH' }
         $ninja = Resolve-Tool -Name 'ninja'
-        if (-not $ninja) {
-            throw 'ninja not found. Install.bat should winget-install Ninja-build.Ninja - close window and re-run.'
-        }
+        if (-not $ninja) { throw 'ninja not found on PATH (winget Ninja-build.Ninja)' }
         $toolchain = Get-VcpkgToolchain -Root $Root
         if (-not $toolchain) {
-            throw 'vcpkg toolchain missing. Ensure-Vcpkg must succeed before cmake (fmt comes from vcpkg).'
+            $toolchain = Join-Path $localVcpkg 'scripts\buildsystems\vcpkg.cmake'
         }
-        if (-not $env:VCPKG_ROOT) {
-            throw 'VCPKG_ROOT is not set - required by CMakePresets.json windows-release'
+        if (-not (Test-Path -LiteralPath $toolchain)) {
+            throw "Local vcpkg toolchain missing: $toolchain (Ensure-Vcpkg must run first)"
         }
-        Write-Ok "cmake toolchain: $toolchain"
-        Write-Ok "ninja: $ninja"
-
-        # Fresh configure tree avoids half-broken caches from previous failed Install runs.
-        $buildDir = Join-Path $Root 'build'
-        if (Test-Path -LiteralPath $buildDir) {
-            Write-Warn 'Removing previous build\\ folder for clean cmake configure'
-            Remove-Item -LiteralPath $buildDir -Recurse -Force
+        # Refuse Visual Studio's bundled vcpkg path explicitly.
+        if ($toolchain -match 'Microsoft Visual Studio') {
+            throw "Refusing VS bundled vcpkg toolchain: $toolchain"
         }
 
-        $usedPreset = $false
-        if (Test-Path -LiteralPath (Join-Path $Root 'CMakePresets.json')) {
-            & $cmake --preset windows-release
-            if ($LASTEXITCODE -eq 0) {
-                & $cmake --build --preset windows-release --target market-core -j
-                $usedPreset = ($LASTEXITCODE -eq 0)
-            } else {
-                Write-Warn 'cmake --preset windows-release failed; falling back to explicit -G Ninja + vcpkg'
-            }
-        }
-        if (-not $usedPreset) {
-            New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
-            # Always Ninja + MSVC env + vcpkg (never bare configure).
-            & $cmake -B $buildDir -G Ninja `
-                -DCMAKE_BUILD_TYPE=Release `
-                -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
-                -DVCPKG_TARGET_TRIPLET=x64-windows `
-                -DMR_BUILD_TESTS=OFF
-            if ($LASTEXITCODE -ne 0) {
-                $log = Join-Path $buildDir 'vcpkg-manifest-install.log'
-                if (Test-Path -LiteralPath $log) {
-                    Write-Warn "vcpkg log (tail):"
-                    Get-Content -LiteralPath $log -Tail 40 | ForEach-Object { Write-Host $_ }
-                }
-                throw 'cmake configure failed (vcpkg toolchain). If tools\\vcpkg is corrupt: rmdir /s /q tools\\vcpkg build then re-run Install.bat.'
-            }
-            & $cmake --build $buildDir --target market-core -j
-            if ($LASTEXITCODE -ne 0) { throw 'cmake build market-core failed' }
-        }
+        Write-Ok "VCPKG_ROOT=$env:VCPKG_ROOT"
+        Write-Ok "toolchain=$toolchain"
+        Write-Ok "ninja=$ninja"
+
+        Invoke-MarketCoreBuild -Root $Root -CMake $cmake -Ninja $ninja -Toolchain $toolchain
+
         $exe = Get-MarketCoreExe -Root $Root
         if (-not $exe) { throw 'market-core binary not found after build' }
         Write-Ok "market-core built: $exe"

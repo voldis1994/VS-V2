@@ -259,15 +259,13 @@ function Ensure-Vcpkg {
         [switch]$DryRun
     )
     $toolchainRel = 'scripts\buildsystems\vcpkg.cmake'
-    $local = Join-Path $Root 'tools\vcpkg'
+    $local = Join-Path (Join-Path $Root 'tools') 'vcpkg'
     $toolchain = Join-Path $local $toolchainRel
 
-    # Prefer repo-local tools\vcpkg so Install.bat is self-contained.
-    if ($env:VCPKG_ROOT -and (Test-Path -LiteralPath (Join-Path $env:VCPKG_ROOT $toolchainRel))) {
-        if ($env:VCPKG_ROOT -ne $local) {
-            Write-Warn "Using existing VCPKG_ROOT=$($env:VCPKG_ROOT)"
-            return $env:VCPKG_ROOT
-        }
+    # ALWAYS use repo-local tools\vcpkg. Visual Studio sets VCPKG_ROOT to its own
+    # copy under BuildTools\VC\vcpkg which breaks manifests / baselines.
+    if ($env:VCPKG_ROOT -and $env:VCPKG_ROOT -ne $local) {
+        Write-Warn "Ignoring external VCPKG_ROOT=$($env:VCPKG_ROOT) (VS BuildTools) - forcing $local"
     }
 
     if ($DryRun) {
@@ -297,12 +295,45 @@ function Ensure-Vcpkg {
         }
     }
 
+    $baseline = $null
+    $manifest = Join-Path $Root 'vcpkg.json'
+    if (Test-Path -LiteralPath $manifest) {
+        try {
+            $json = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+            if ($json.'builtin-baseline') { $baseline = [string]$json.'builtin-baseline' }
+        } catch {}
+    }
+    if (-not $baseline) { $baseline = '9e44ec0e9f247d77c230ced0ee66c76296837807' }
+
     if ($needsClone) {
-        Write-Step "Cloning vcpkg into $local (provides fmt and other C++ deps)"
-        New-Item -ItemType Directory -Path (Split-Path -Parent $local) -Force | Out-Null
-        # Full history so builtin-baseline commits resolve; depth-1 breaks baseline lookups.
-        & $git clone --depth 1 https://github.com/microsoft/vcpkg.git $local
-        if ($LASTEXITCODE -ne 0) { throw 'git clone vcpkg failed' }
+        Write-Step "Fetching vcpkg@$baseline into $local (fmt and other C++ deps)"
+        New-Item -ItemType Directory -Path $local -Force | Out-Null
+        Push-Location $local
+        try {
+            if (-not (Test-Path -LiteralPath (Join-Path $local '.git'))) {
+                & $git init | Out-Null
+                & $git remote add origin https://github.com/microsoft/vcpkg.git
+            }
+            & $git fetch --depth 1 origin $baseline
+            if ($LASTEXITCODE -ne 0) { throw "git fetch vcpkg@$baseline failed" }
+            & $git checkout --force FETCH_HEAD
+            if ($LASTEXITCODE -ne 0) { throw "git checkout vcpkg@$baseline failed" }
+        } finally {
+            Pop-Location
+        }
+    } else {
+        # Ensure existing clone is on the manifest baseline commit when possible.
+        Push-Location $local
+        try {
+            $head = (& $git rev-parse HEAD 2>$null)
+            if ($head -and $baseline -and ($head.Trim().ToLowerInvariant() -ne $baseline.ToLowerInvariant())) {
+                Write-Step "Checking out vcpkg baseline $baseline"
+                & $git fetch --depth 1 origin $baseline 2>$null
+                & $git checkout --force FETCH_HEAD 2>$null
+            }
+        } finally {
+            Pop-Location
+        }
     }
 
     $vcpkgExe = Join-Path $local 'vcpkg.exe'
@@ -325,15 +356,7 @@ function Ensure-Vcpkg {
         throw "vcpkg toolchain missing: $toolchain"
     }
 
-    # Align manifest baseline to this vcpkg checkout (avoids stale builtin-baseline / shallow errors).
-    Push-Location $Root
-    try {
-        Write-Step 'Aligning vcpkg.json baseline to local vcpkg checkout'
-        & $vcpkgExe x-update-baseline --add-initial-baseline 2>$null
-        # Non-zero is OK if baseline already present and current; ignore soft failures.
-    } finally {
-        Pop-Location
-    }
+    # Manifest builtin-baseline is pinned in vcpkg.json and matched by the checkout above.
 
     $env:VCPKG_ROOT = $local
     [Environment]::SetEnvironmentVariable('VCPKG_ROOT', $local, 'Process')
@@ -343,8 +366,9 @@ function Ensure-Vcpkg {
 
 function Get-VcpkgToolchain {
     param([string]$Root)
-    $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { Join-Path $Root 'tools\vcpkg' }
-    $toolchain = Join-Path $root 'scripts\buildsystems\vcpkg.cmake'
+    # Never trust external VCPKG_ROOT (VS BuildTools ships its own broken copy).
+    $local = Join-Path (Join-Path $Root 'tools') 'vcpkg'
+    $toolchain = Join-Path $local 'scripts\buildsystems\vcpkg.cmake'
     if (Test-Path -LiteralPath $toolchain) { return $toolchain }
     return $null
 }
@@ -448,6 +472,94 @@ function Enter-VsDevShell {
 }
 
 
+
+
+# Run cmake+ninja inside one cmd.exe session that has already called VsDevCmd.
+# This avoids PowerShell PATH / CMAKE_CXX_COMPILER / wrong VCPKG_ROOT issues.
+function Invoke-MarketCoreBuild {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$CMake,
+        [Parameter(Mandatory = $true)][string]$Ninja,
+        [Parameter(Mandatory = $true)][string]$Toolchain
+    )
+
+    $vcpkgRoot = Join-Path (Join-Path $Root 'tools') 'vcpkg'
+    if (-not (Test-Path -LiteralPath $Toolchain)) {
+        throw "Toolchain missing: $Toolchain"
+    }
+    if ("$Toolchain" -match 'Microsoft Visual Studio') {
+        throw "Refusing VS bundled vcpkg toolchain: $Toolchain"
+    }
+    # Force local vcpkg for this process and child cmd.
+    $env:VCPKG_ROOT = $vcpkgRoot
+    [Environment]::SetEnvironmentVariable('VCPKG_ROOT', $vcpkgRoot, 'Process')
+    Remove-Item Env:CMAKE_TOOLCHAIN_FILE -ErrorAction SilentlyContinue
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        throw 'vswhere.exe not found'
+    }
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if (-not $vsPath) {
+        $vsPath = & $vswhere -latest -products * -property installationPath 2>$null
+    }
+    if (-not $vsPath) { throw 'Visual Studio Build Tools with MSVC not found' }
+    $vsDevCmd = Join-Path $vsPath.Trim() 'Common7\Tools\VsDevCmd.bat'
+    if (-not (Test-Path -LiteralPath $vsDevCmd)) { throw "VsDevCmd.bat missing: $vsDevCmd" }
+
+    $buildDir = Join-Path $Root 'build'
+    if (Test-Path -LiteralPath $buildDir) {
+        Write-Warn 'Removing previous build\\ folder for clean configure'
+        Remove-Item -LiteralPath $buildDir -Recurse -Force
+    }
+
+    $ninjaDir = Split-Path -Parent $Ninja
+    $log = Join-Path $Root 'build-cmake.log'
+    $bat = Join-Path $env:TEMP ('vs-v2-build-' + [guid]::NewGuid().ToString('n') + '.bat')
+
+    $cmakeConfigure = (
+        '"{0}" -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ' +
+        '-DCMAKE_TOOLCHAIN_FILE="{1}" -DCMAKE_MAKE_PROGRAM="{2}" ' +
+        '-DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_FEATURE_FLAGS=manifests -DMR_BUILD_TESTS=OFF'
+    ) -f $CMake, $Toolchain, $Ninja
+    $cmakeBuild = '"{0}" --build build --target market-core -j' -f $CMake
+
+    $lines = @(
+        '@echo off',
+        'setlocal EnableExtensions',
+        ('call "{0}" -arch=amd64 -host_arch=amd64' -f $vsDevCmd),
+        'if errorlevel 1 exit /b 1',
+        ('set "VCPKG_ROOT={0}"' -f $vcpkgRoot),
+        'set CMAKE_TOOLCHAIN_FILE=',
+        ('set "PATH={0};%PATH%"' -f $ninjaDir),
+        ('cd /d "{0}"' -f $Root),
+        'echo VCPKG_ROOT=%VCPKG_ROOT%',
+        'where cl',
+        'where ninja',
+        $cmakeConfigure,
+        'if errorlevel 1 exit /b 1',
+        $cmakeBuild,
+        'exit /b %ERRORLEVEL%'
+    )
+    Set-Content -LiteralPath $bat -Value ($lines -join "`r`n") -Encoding ASCII
+
+    Write-Step 'Configuring and building market-core (cmd + VsDevCmd + local vcpkg + Ninja)'
+    try {
+        & cmd.exe /c "`"$bat`" > `"$log`" 2>&1"
+        $code = $LASTEXITCODE
+    } finally {
+        Remove-Item -LiteralPath $bat -Force -ErrorAction SilentlyContinue
+    }
+    if ($code -ne 0) {
+        if (Test-Path -LiteralPath $log) {
+            Write-Warn 'cmake/build log (tail):'
+            Get-Content -LiteralPath $log -Tail 60 | ForEach-Object { Write-Host $_ }
+        }
+        throw "market-core build failed (exit $code). See build-cmake.log. If tools\\vcpkg is wrong: rmdir /s /q tools\\vcpkg build & Install.bat"
+    }
+    Write-Ok 'market-core cmake build finished'
+}
 
 function Wait-HttpOk {
     param([string]$Url, [int]$Attempts = 40, [int]$DelayMs = 500)

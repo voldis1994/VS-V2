@@ -73,10 +73,12 @@ def test_install_flow() -> list[str]:
             "Ensure-Tool",
             "Ensure-Vcpkg",
             "Enter-VsDevShell",
-            "-G Ninja",
             "Get-VcpkgToolchain",
             "CMAKE_TOOLCHAIN_FILE",
             "Ensure-MsvcBuildTools",
+            "Invoke-MarketCoreBuild",
+            "VCPKG_ROOT forced local",
+            "Refusing VS bundled vcpkg",
         ],
         "install.ps1",
     )
@@ -97,9 +99,15 @@ def test_install_flow() -> list[str]:
             "Enter-VsDevShell",
             "call",
             "Microsoft.VisualStudio.DevShell",
-            "x-update-baseline",
             "Get-VcpkgToolchain",
             "Ensure-MsvcBuildTools",
+            "Invoke-MarketCoreBuild",
+            "Ignoring external VCPKG_ROOT",
+            "-G Ninja",
+            "CMAKE_MAKE_PROGRAM",
+            "builtin-baseline",
+            "Never trust external VCPKG_ROOT",
+            "Refusing VS bundled vcpkg",
         ],
         "common.ps1",
     )
@@ -305,6 +313,15 @@ def test_ps1_ascii_only() -> list[str]:
             errs.append(f"{rel}: contains non-ASCII bytes (use ASCII-only; WP5.1 breaks on em-dash)")
     return errs
 
+
+def test_vcpkg_baseline() -> list[str]:
+    import json
+    errs: list[str] = []
+    data = json.loads((ROOT / "vcpkg.json").read_text(encoding="utf-8"))
+    if not data.get("builtin-baseline"):
+        errs.append("vcpkg.json missing builtin-baseline (required by vcpkg manifests)")
+    return errs
+
 def main() -> int:
     os.environ["OPERATING_MODE"] = "PAPER"
     os.environ["LIVE_TRADING_ENABLED"] = "false"
@@ -318,6 +335,7 @@ def main() -> int:
         ("no_live_orders", test_no_live_order_paths),
         ("vs_bat_quarantined", test_vs_bat_quarantined),
         ("ps1_ascii_only", test_ps1_ascii_only),
+        ("vcpkg_baseline", test_vcpkg_baseline),
     ]
     failed = 0
     for name, fn in suites:
