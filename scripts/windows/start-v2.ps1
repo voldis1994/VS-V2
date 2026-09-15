@@ -117,7 +117,10 @@ function Start-LoggedProcess {
     )
     $envBlock = @(
         'set OPERATING_MODE=PAPER',
-        'set LIVE_TRADING_ENABLED=false'
+        'set LIVE_TRADING_ENABLED=false',
+        # Prevent npm.ps1/npm.cmd from using repo as prefix (MODULE_NOT_FOUND npm-cli.js).
+        'set npm_config_prefix=',
+        'set PREFIX='
     )
     foreach ($k in $passKeys) {
         $v = [Environment]::GetEnvironmentVariable($k, 'Process')
@@ -177,11 +180,7 @@ Write-Step 'Starting all PAPER services (3 CMD windows)'
 $apiLog = Join-Path $logs 'control-api.paper.log'
 $distJs = Join-Path $Root 'apps\control-api\dist\index.js'
 $envPaper = Join-Path $Root '.env.paper'
-$nodeExe = Resolve-Tool -Name 'node'
-if (-not $nodeExe) { $nodeExe = Join-Path ${env:ProgramFiles} 'nodejs\node.exe' }
-if (-not (Test-Path -LiteralPath $nodeExe)) {
-    throw "node.exe not found at $nodeExe - install Node.js 20+ LTS, open a NEW cmd, re-run V2.bat"
-}
+$nodeExe = Get-SystemNodeExe
 if (-not (Test-Path -LiteralPath $distJs)) {
     Write-Warn 'control-api dist missing - building once with node (tsc)'
     $tscJs = Join-Path $Root 'node_modules\typescript\bin\tsc'
@@ -230,16 +229,18 @@ if ($SkipMarketCore) {
 }
 
 # --- 3) Dashboard (separate CMD) ---
-$npmExe = Resolve-Tool -Name 'npm'
-if (-not $npmExe) { $npmExe = Join-Path ${env:ProgramFiles} 'nodejs\npm.cmd' }
-if (-not (Test-Path -LiteralPath $npmExe)) {
-    throw 'npm.cmd not found. Repair Node.js (winget install OpenJS.NodeJS.LTS), NEW cmd, V2.bat'
-}
-Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $npmExe `
-    -Arguments 'run dev --workspace=@vs-v2/dashboard' `
+# Dashboard via system npm-cli.js + node.exe (never npm.ps1 / broken prefix).
+$sysNode = Get-SystemNodeExe
+$npmCli = Get-SystemNpmCliJs
+Write-Ok "dashboard via node + system npm-cli.js (bypass npm.ps1 prefix bug)"
+Write-Host "  node: $sysNode"
+Write-Host "  npm:  $npmCli"
+Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $sysNode `
+    -Arguments ('"{0}" run dev --workspace=@vs-v2/dashboard' -f $npmCli) `
     -WorkingDirectory $Root -LogName 'dashboard.paper.log' -ExtraEnv @{
         OPERATING_MODE       = 'PAPER'
         LIVE_TRADING_ENABLED = 'false'
+        npm_config_prefix    = ''
     } | Out-Null
 
 Write-Ok 'All service CMD windows launched (Control API + Market Core + Dashboard)'
