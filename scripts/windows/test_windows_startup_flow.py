@@ -248,14 +248,28 @@ def test_no_live_order_paths() -> list[str]:
     return errs
 
 
-def test_vs_bat_cmake_path_probe() -> list[str]:
-    """Legacy VS.bat had the same 'cmake missing from PATH' class of bug."""
+def test_vs_bat_quarantined() -> list[str]:
+    """Legacy VS.bat must not force LIVE or curl remote launchers."""
     bat = read("VS.bat")
     errs: list[str] = []
-    if "ProgramFiles}\\CMake\\bin" not in bat and r"ProgramFiles%\CMake\bin" not in bat:
-        errs.append("VS.bat: missing CMake Program Files PATH probe")
-    if "GetEnvironmentVariable('Path','Machine')" not in bat:
-        errs.append("VS.bat: missing Machine/User PATH refresh before cmake")
+    if "QUARANTINED" not in bat:
+        errs.append("VS.bat: missing QUARANTINED marker")
+    if "V2.bat" not in bat:
+        errs.append("VS.bat: must point operators to V2.bat")
+    for pat in (
+        r"(?m)^\s*set\s+OPERATING_MODE=LIVE\b",
+        r"(?m)^\s*set\s+LIVE_TRADING_ENABLED=true\b",
+        r"--mode\s+LIVE\b",
+        r"raw\.githubusercontent\.com",
+        r"curl\.exe",
+    ):
+        if re.search(pat, bat, flags=re.IGNORECASE):
+            errs.append(f"VS.bat: forbidden live/remote pattern {pat!r}")
+    # upsert_env LIVE style
+    if re.search(r"upsert_env\s+OPERATING_MODE\s+LIVE", bat, re.I):
+        errs.append("VS.bat: still upserts OPERATING_MODE LIVE")
+    if re.search(r"upsert_env\s+LIVE_TRADING_ENABLED\s+true", bat, re.I):
+        errs.append("VS.bat: still upserts LIVE_TRADING_ENABLED true")
     return errs
 
 
@@ -270,7 +284,7 @@ def main() -> int:
         ("simulate_install", simulate_install_dry_run),
         ("simulate_v2", simulate_v2_dry_run),
         ("no_live_orders", test_no_live_order_paths),
-        ("vs_bat_cmake_path", test_vs_bat_cmake_path_probe),
+        ("vs_bat_quarantined", test_vs_bat_quarantined),
     ]
     failed = 0
     for name, fn in suites:

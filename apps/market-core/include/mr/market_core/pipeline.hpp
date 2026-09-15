@@ -44,7 +44,7 @@ public:
     void bind_order_gateway(OrderGateway& gateway);
 
     /**
-     * Operating mode. Replay refuses Capital LIVE gateways.
+     * Operating mode. Replay/Paper refuse Capital LIVE gateways (demotion clears execution).
      * Paper/Replay may use PaperOrderGateway only.
      */
     void set_operating_mode(OperatingMode mode);

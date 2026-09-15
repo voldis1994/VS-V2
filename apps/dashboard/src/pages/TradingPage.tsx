@@ -42,6 +42,8 @@ export function TradingPage() {
   const [orderEpic, setOrderEpic] = useState('');
   const [orderSize, setOrderSize] = useState('0.1');
   const [orderBusy, setOrderBusy] = useState(false);
+  const [liveEntriesAllowed, setLiveEntriesAllowed] = useState(false);
+  const [runtimeMode, setRuntimeMode] = useState('PAPER');
 
   useEffect(() => {
     if (!accounts || accounts.length === 0) {
@@ -211,8 +213,40 @@ export function TradingPage() {
     setMsg(`Robot board · ${displayName} · lot ${lot}`);
   };
 
+
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const st = await apiFetch<{
+          mode?: string;
+          live_entries_allowed?: boolean;
+        }>('/api/system/runtime-mode');
+        if (cancelled) return;
+        setRuntimeMode(String(st.mode || 'PAPER'));
+        setLiveEntriesAllowed(st.live_entries_allowed === true);
+      } catch {
+        if (!cancelled) {
+          setLiveEntriesAllowed(false);
+          setRuntimeMode('PAPER');
+        }
+      }
+    };
+    void pull();
+    const id = setInterval(() => void pull(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   const placeOrder = async (direction: 'BUY' | 'SELL') => {
     if (!accountId) return;
+    if (!liveEntriesAllowed) {
+      setMsgOk(false);
+      setMsg(`Orders locked — mode ${runtimeMode} (arm LIVE via Settings / runtime-mode)`);
+      return;
+    }
     setOrderBusy(true);
     setMsg(null);
     try {
@@ -244,7 +278,7 @@ export function TradingPage() {
     <div>
       <h1 className="page-title">Trading</h1>
       <p className="page-subtitle">
-        Only real Capital.com market names · lot size · LIVE BUY/SELL
+        Capital.com market names · lot size · BUY/SELL only when LIVE is armed
       </p>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -298,7 +332,7 @@ export function TradingPage() {
 
       {accountId && (
         <div className="card" style={{ marginBottom: 16 }}>
-          <div className="section-title">LIVE ORDER (Capital.com name)</div>
+          <div className="section-title">ORDER (requires LIVE armed)</div>
           <p className="hint-line" style={{ marginBottom: 10 }}>
             Izvēlies tirgu no ielādētā Capital.com kataloga (īsts display name). Brokers Test = OK.
           </p>
@@ -326,18 +360,23 @@ export function TradingPage() {
             />
             <button
               className="btn btn-go"
-              disabled={orderBusy || !orderEpic.trim()}
+              disabled={orderBusy || !orderEpic.trim() || !liveEntriesAllowed}
               onClick={() => void placeOrder('BUY')}
             >
               BUY
             </button>
             <button
               className="btn btn-stop"
-              disabled={orderBusy || !orderEpic.trim()}
+              disabled={orderBusy || !orderEpic.trim() || !liveEntriesAllowed}
               onClick={() => void placeOrder('SELL')}
             >
               SELL
             </button>
+            {!liveEntriesAllowed && (
+              <span className="hint-line" style={{ alignSelf: 'center' }}>
+                Orders locked · mode {runtimeMode} (use Settings → runtime-mode to arm LIVE)
+              </span>
+            )}
             <button
               className="btn btn-primary"
               disabled={!orderEpic.trim() || !accountId}

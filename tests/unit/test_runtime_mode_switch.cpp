@@ -171,3 +171,16 @@ TEST(RuntimeModeSwitch, ReplayClearsPriorLiveGateway) {
     EXPECT_FALSE(pipeline.has_execution());
     EXPECT_TRUE(gw.creates.empty());
 }
+
+TEST(RuntimeModeSwitch, LiveToPaperClearsPriorLiveGateway) {
+    MockGateway gw;
+    MarketCorePipeline pipeline;
+    pipeline.set_operating_mode(OperatingMode::Live);
+    pipeline.bind_order_gateway(gw);
+    ASSERT_TRUE(pipeline.has_execution());
+
+    // LIVE→PAPER must drop the prior LIVE gateway (no broker orders on paper path).
+    pipeline.set_operating_mode(OperatingMode::Paper);
+    EXPECT_FALSE(pipeline.has_execution());
+    EXPECT_TRUE(gw.creates.empty());
+}

@@ -23,9 +23,12 @@ void MarketCorePipeline::bind_order_gateway(OrderGateway& gateway) {
 void MarketCorePipeline::set_operating_mode(OperatingMode mode) {
     mode_ = mode;
     brain_runtime_.set_operating_mode(mode);
-    // Replay clears any prior LIVE gateway; EpisodeReplay rebinds PaperOrderGateway after.
-    if (mode_ == OperatingMode::Replay) {
+    // Fail-closed demotion: never keep a LIVE Capital gateway after leaving Live.
+    // Shadow keeps the gateway so open positions can still manage/exit.
+    // Replay/Paper drop execution; EpisodeReplay / paper tests rebind PaperOrderGateway after.
+    if (mode_ == OperatingMode::Replay || mode_ == OperatingMode::Paper) {
         execution_.reset();
+        broker_healthy_ = false;
     }
 }
 

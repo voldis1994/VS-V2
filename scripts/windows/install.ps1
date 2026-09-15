@@ -62,6 +62,27 @@ if (-not (Test-Path -LiteralPath $envFile)) {
     }
 }
 
+
+function Ensure-AdminToken {
+    param([string]$EnvFile)
+    if (-not (Test-Path -LiteralPath $EnvFile)) { return }
+    $raw = Get-Content -LiteralPath $EnvFile -Raw
+    if ($null -eq $raw) { $raw = '' }
+    $needs = $true
+    if ($raw -match '(?m)^API_ADMIN_TOKEN=(.+)$') {
+        $cur = $Matches[1].Trim().Trim('"').Trim("'")
+        if ($cur -and $cur -ne 'CHANGE_ME_ADMIN_TOKEN') { $needs = $false }
+    }
+    if (-not $needs) { return }
+    $bytes = New-Object byte[] 24
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $token = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+    Set-EnvKey $EnvFile 'API_ADMIN_TOKEN' $token
+    # Never leave insecure admin enabled after we minted a real token.
+    Set-EnvKey $EnvFile 'ALLOW_INSECURE_ADMIN' 'false'
+    Write-Ok "generated API_ADMIN_TOKEN in $(Split-Path -Leaf $EnvFile)"
+}
+
 if (Test-Path -LiteralPath $envPaper) { Import-DotEnvFile -Path $envPaper }
 elseif (Test-Path -LiteralPath $envFile) { Import-DotEnvFile -Path $envFile }
 Enforce-PaperFailClosed
@@ -96,6 +117,10 @@ if (Test-Path -LiteralPath $envPaper) {
 if (Test-Path -LiteralPath $envFile) {
     Set-EnvKey $envFile 'OPERATING_MODE' 'PAPER'
     Set-EnvKey $envFile 'LIVE_TRADING_ENABLED' 'false'
+
+if (Test-Path -LiteralPath $envPaper) { Ensure-AdminToken -EnvFile $envPaper }
+if (Test-Path -LiteralPath $envFile) { Ensure-AdminToken -EnvFile $envFile }
+
 }
 
 Write-Step 'npm install (workspaces)'

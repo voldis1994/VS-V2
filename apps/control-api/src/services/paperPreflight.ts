@@ -49,6 +49,14 @@ export async function runPaperPreflight(): Promise<PaperPreflightResult> {
   };
   if (entries) reasons.push('live_entries_allowed');
 
+  // Manual + automated Capital creates share liveEntriesAllowed() (trading route + intent fan-out).
+  checks.broker_order_routes_gated = {
+    ok: !entries,
+    detail: !entries
+      ? 'POST /api/trading/accounts/:id/orders requires liveEntriesAllowed()'
+      : 'live entries armed — broker order routes may place Capital orders',
+  };
+
   const dbOk = await healthCheck();
   checks.database = { ok: dbOk, detail: dbOk ? 'HEALTHY' : 'UNHEALTHY' };
   if (!dbOk) reasons.push('database_unhealthy');
@@ -104,7 +112,7 @@ export async function runPaperPreflight(): Promise<PaperPreflightResult> {
     operating_mode: mode,
     live_trading_enabled: liveEnabled,
     live_entries_allowed: entries,
-    broker_orders_forbidden: true,
+    broker_orders_forbidden: !entries,
     checks,
     reasons: tradingSafe
       ? reasons.filter((r) => r.startsWith('capital_'))

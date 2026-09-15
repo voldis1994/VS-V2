@@ -99,6 +99,7 @@ describe('paperPreflight', () => {
     const r = await runPaperPreflight();
     expect(r.ok).toBe(false);
     expect(r.reasons).toContain('live_entries_allowed');
+    expect(r.broker_orders_forbidden).toBe(false);
   });
 
   it('fails when OPERATING_MODE is not PAPER', async () => {
