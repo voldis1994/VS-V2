@@ -7,7 +7,6 @@ function extractErrorMessage(body: unknown, status: number, statusText: string):
     const o = body as Record<string, unknown>;
     const message = typeof o.message === 'string' ? o.message : '';
     const error = typeof o.error === 'string' ? o.error : '';
-    // Prefer Fastify `message` when `error` is generic ("Bad Request")
     if (message && (!error || /^bad request$/i.test(error) || message.length > error.length)) {
       return message;
     }
@@ -17,37 +16,52 @@ function extractErrorMessage(body: unknown, status: number, statusText: string):
   return statusText || `API error: ${status}`;
 }
 
-export function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+function networkErrorMessage(cause: unknown): string {
+  const raw = cause instanceof Error ? cause.message : String(cause || '');
+  if (/failed to fetch|networkerror|load failed|econnrefused|network request failed/i.test(raw)) {
+    return (
+      'Control API unreachable (:3000). Start V2.bat and check the VS-ControlAPI window ' +
+      '(or logs/control-api.paper.log). Dashboard alone on :5173 is not enough.'
+    );
+  }
+  return raw || 'Network error';
+}
+
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...((options?.headers as Record<string, string> | undefined) || {}),
   };
 
-  // Avoid Fastify 400: Content-Type application/json with empty body
   if (options?.body !== undefined && options?.body !== null) {
     if (!headers['Content-Type'] && !headers['content-type']) {
       headers['Content-Type'] = 'application/json';
     }
   }
 
-  return fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  }).then(async (res) => {
-    const text = await res.text();
-    let body: unknown = null;
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = text;
-      }
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    throw new Error(networkErrorMessage(err));
+  }
+
+  const text = await res.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
     }
-    if (!res.ok) {
-      throw new Error(extractErrorMessage(body, res.status, res.statusText));
-    }
-    return body as T;
-  });
+  }
+  if (!res.ok) {
+    throw new Error(extractErrorMessage(body, res.status, res.statusText));
+  }
+  return body as T;
 }
 
 export function useApi<T>(path: string, intervalMs = 0) {
@@ -60,7 +74,7 @@ export function useApi<T>(path: string, intervalMs = 0) {
     setError(null);
     apiFetch<T>(path)
       .then(setData)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [path]);
 

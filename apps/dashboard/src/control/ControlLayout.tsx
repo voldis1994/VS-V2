@@ -37,6 +37,20 @@ export function ControlLayout() {
   const [modeBusy, setModeBusy] = useState(false);
   const [modeMsg, setModeMsg] = useState<string | null>(null);
   const [clientCount, setClientCount] = useState(0);
+  const [apiOk, setApiOk] = useState<boolean | null>(null);
+  const [apiDetail, setApiDetail] = useState<string>('');
+
+  const probeApi = useCallback(async () => {
+    try {
+      const res = await fetch('/health', { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`health ${res.status}`);
+      setApiOk(true);
+      setApiDetail('Control API :3000');
+    } catch {
+      setApiOk(false);
+      setApiDetail('API offline — start V2.bat / VS-ControlAPI');
+    }
+  }, []);
 
   const loadMode = useCallback(async () => {
     try {
@@ -47,6 +61,12 @@ export function ControlLayout() {
       /* keep */
     }
   }, []);
+
+  useEffect(() => {
+    void probeApi();
+    const id = window.setInterval(() => void probeApi(), 5000);
+    return () => window.clearInterval(id);
+  }, [probeApi]);
 
   useEffect(() => {
     void loadMode();
@@ -75,6 +95,7 @@ export function ControlLayout() {
     } finally {
       setModeBusy(false);
       void loadMode();
+      void probeApi();
     }
   };
 
@@ -83,10 +104,10 @@ export function ControlLayout() {
       <div className="cp-shell">
         <aside className="cp-rail">
           <div className="cp-brand">
-            <img src="/logo-emblem.png" alt="" />
+            <img src="/logo-emblem.png" alt="VS" className="cp-brand-mark" />
             <div className="cp-brand-text">
               <strong>VS SYSTEM</strong>
-              <span>Control Panel</span>
+              <span>CONTROL PANEL</span>
             </div>
           </div>
           <nav className="cp-nav">
@@ -105,8 +126,10 @@ export function ControlLayout() {
             ))}
           </nav>
           <div className="cp-rail-foot">
-            <div className="online">● System online</div>
-            <div>Desk / legacy routes still available</div>
+            <div className={apiOk ? 'online' : 'offline'}>
+              {apiOk === null ? '● Checking API…' : apiOk ? '● API online' : '● API offline'}
+            </div>
+            <div>{apiDetail}</div>
           </div>
         </aside>
 
@@ -138,6 +161,12 @@ export function ControlLayout() {
               {modeMsg && <span className="cp-muted">{modeMsg}</span>}
             </div>
           </header>
+          {apiOk === false && (
+            <div className="cp-api-banner" role="alert">
+              <strong>Control API nav pieejams.</strong> Palaid <code>V2.bat</code> un atstāj logu{' '}
+              <code>VS-ControlAPI</code> atvērtu. Bez API klientus pievienot nevar.
+            </div>
+          )}
           <div className="cp-body">
             <Outlet />
           </div>

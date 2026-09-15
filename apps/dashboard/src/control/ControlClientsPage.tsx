@@ -21,6 +21,8 @@ type ClientRow = {
     entry_price: number | null;
   } | null;
   last_seen_at?: string | null;
+  broker_error?: string | null;
+  status_reason?: string | null;
 };
 
 type ProvisionResult = ClientRow & {
@@ -60,7 +62,20 @@ export function ControlClientsPage() {
         risk_enabled: true,
       };
       if (form.password.trim()) body.password = form.password.trim();
-      if (form.identifier.trim() || form.api_key.trim() || form.api_password.trim()) {
+
+      const hasAnyCapital =
+        Boolean(form.identifier.trim()) ||
+        Boolean(form.api_key.trim()) ||
+        Boolean(form.api_password.trim());
+      if (hasAnyCapital) {
+        if (!form.identifier.trim() || !form.api_key.trim() || !form.api_password.trim()) {
+          throw new Error(
+            'Capital: aizpildi identifier (email) + API key + API password (vai atstāj visus tukšus).'
+          );
+        }
+        if (form.api_key.includes('@')) {
+          throw new Error('API Key izskatās pēc email — email liec Identifier laukā.');
+        }
         body.capital = {
           environment: form.environment,
           identifier: form.identifier.trim(),
@@ -68,6 +83,7 @@ export function ControlClientsPage() {
           password: form.api_password.trim(),
         };
       }
+
       const created = await apiFetch<ProvisionResult>('/api/clients', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -135,8 +151,16 @@ export function ControlClientsPage() {
 
   return (
     <div>
-      <section className="cp-panel">
-        <h2>+ ADD CLIENT (NAME + PASSWORD + CAPITAL)</h2>
+      <section className="cp-panel cp-hero-panel">
+        <div className="cp-clients-hero">
+          <img src="/logo-full.png" alt="VS" className="cp-clients-hero-logo" />
+          <div>
+            <h2>ADD CLIENT</h2>
+            <p className="cp-muted">
+              Vārds + web parole + Capital API. Brokeris saglabājas šifrēts. Parole rādās vienreiz.
+            </p>
+          </div>
+        </div>
         <form className="cp-form" onSubmit={(e) => void createClient(e)}>
           <div className="cp-grid-2">
             <label>
@@ -144,7 +168,7 @@ export function ControlClientsPage() {
               <input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Alpha Capital"
+                placeholder="B.O.S.S"
                 required
               />
             </label>
@@ -199,20 +223,22 @@ export function ControlClientsPage() {
           </div>
           <div className="cp-row">
             <button className="cp-btn primary" type="submit" disabled={busy}>
-              CREATE + CONNECT
+              {busy ? 'CONNECTING…' : 'CREATE + CONNECT'}
             </button>
             <span className="cp-muted">
-              If Capital fields are filled, broker is saved encrypted and web access is enabled.
+              Ja Capital lauki aizpildīti — brokeris + web access uzreiz.
             </span>
           </div>
         </form>
-        {msg && <p className={msg.toLowerCase().includes('fail') ? 'cp-error' : 'cp-ok'}>{msg}</p>}
+        {msg && (
+          <p className={/fail|error|unreachable|nav |aizpildi|izskatās/i.test(msg) ? 'cp-error' : 'cp-ok'}>
+            {msg}
+          </p>
+        )}
         {issued && (
-          <div className="cp-panel" style={{ marginTop: '0.75rem', borderColor: 'rgba(45,226,230,0.45)' }}>
+          <div className="cp-panel cp-issued" style={{ marginTop: '0.75rem' }}>
             <div className="cp-muted">One-time password for client #{issued.id}</div>
-            <div style={{ fontFamily: 'var(--cp-mono)', fontSize: '1.4rem', letterSpacing: '0.12em' }}>
-              {issued.code}
-            </div>
+            <div className="cp-issued-code">{issued.code}</div>
             <button
               type="button"
               className="cp-btn ghost"
@@ -285,6 +311,9 @@ export function ControlClientsPage() {
                           {c.live_trade.display_name || c.live_trade.market} ·{' '}
                           {Number(c.live_trade.lot_size).toFixed(2)}
                         </div>
+                      )}
+                      {(c.broker_error || c.status_reason) && (
+                        <div className="cp-error">{c.broker_error || c.status_reason}</div>
                       )}
                     </td>
                     <td>
