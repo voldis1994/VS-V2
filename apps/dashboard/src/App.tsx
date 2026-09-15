@@ -2,6 +2,16 @@ import { ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useWebSocket } from './hooks/useWebSocket';
+import { ControlLayout } from './control/ControlLayout';
+import { ControlMainPage } from './control/ControlMainPage';
+import { ControlClientsPage } from './control/ControlClientsPage';
+import {
+  ControlAiPage,
+  ControlErrorsPage,
+  ControlFeedPage,
+  ControlNewsPage,
+  ControlSystemPage,
+} from './control/ControlExtraPages';
 
 import { OverviewPage } from './pages/Overview';
 import { LiveTerminalPage } from './pages/LiveTerminal';
@@ -43,7 +53,18 @@ export default function App() {
       <Route path="/robot" element={<RobotDeskPage />} />
       <Route path="/client" element={<ClientPanelPage />} />
 
-      <Route path="/" element={<LiveTerminalPage />} />
+      <Route path="/control" element={<ControlLayout />}>
+        <Route index element={<ControlMainPage />} />
+        <Route path="clients" element={<ControlClientsPage />} />
+        <Route path="ai" element={<ControlAiPage />} />
+        <Route path="errors" element={<ControlErrorsPage />} />
+        <Route path="feed" element={<ControlFeedPage />} />
+        <Route path="news" element={<ControlNewsPage />} />
+        <Route path="system" element={<ControlSystemPage />} />
+      </Route>
+
+      <Route path="/" element={<Navigate to="/control" replace />} />
+      <Route path="/live" element={<LiveTerminalPage />} />
       <Route path="/overview" element={<Desk><OverviewPage /></Desk>} />
       <Route path="/markets" element={<Desk><MarketsPage /></Desk>} />
       <Route path="/brain" element={<Desk><BrainPage /></Desk>} />
@@ -59,11 +80,10 @@ export default function App() {
       <Route path="/models" element={<Desk><ModelsPage /></Desk>} />
       <Route path="/diagnostics" element={<Desk><DiagnosticsPage /></Desk>} />
 
-      {/* Legacy VS aliases */}
       <Route path="/market" element={<Navigate to="/markets" replace />} />
       <Route path="/market-legacy" element={<Desk><MarketReaderPage /></Desk>} />
       <Route path="/trading" element={<Desk><TradingPage /></Desk>} />
-      <Route path="/clients" element={<Desk><ClientsPage /></Desk>} />
+      <Route path="/clients" element={<Navigate to="/control/clients" replace />} />
       <Route path="/brokers" element={<Desk><BrokersPage /></Desk>} />
       <Route path="/trades" element={<Desk><TradesPage /></Desk>} />
       <Route path="/feeds" element={<Desk><FeedsPage /></Desk>} />

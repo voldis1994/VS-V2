@@ -59,6 +59,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     const { rows } = await pool.query(
       `SELECT c.id, c.name, c.enabled, c.access_enabled,
               c.access_code_hash IS NOT NULL as has_access_code,
+              COALESCE(c.risk_enabled, true) as risk_enabled,
               c.preferred_broker_account_id,
               c.panel_epic, c.panel_display_name, c.panel_lot_size,
               c.panel_robot_requested, c.last_seen_at,
@@ -81,6 +82,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         enabled: row.enabled,
         access_enabled: row.access_enabled,
         has_access_code: row.has_access_code,
+        risk_enabled: row.risk_enabled !== false,
         preferred_broker_account_id: row.preferred_broker_account_id,
         panel_epic: row.panel_epic,
         panel_display_name: row.panel_display_name,
@@ -141,6 +143,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       name?: string;
       enabled?: boolean;
       access_enabled?: boolean;
+      risk_enabled?: boolean;
       preferred_broker_account_id?: number | null;
     };
     const prev = await pool.query('SELECT * FROM clients WHERE id = $1', [id]);
@@ -151,9 +154,16 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         name = COALESCE($2, name),
         enabled = COALESCE($3, enabled),
         access_enabled = COALESCE($4, access_enabled),
+        risk_enabled = COALESCE($5, risk_enabled),
         updated_at = NOW()
        WHERE id = $1`,
-      [id, body.name ?? null, body.enabled ?? null, body.access_enabled ?? null]
+      [
+        id,
+        body.name ?? null,
+        body.enabled ?? null,
+        body.access_enabled ?? null,
+        body.risk_enabled ?? null,
+      ]
     );
     if (body.preferred_broker_account_id !== undefined) {
       await pool.query(
@@ -162,7 +172,9 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       );
     }
     const fresh = await pool.query(
-      `SELECT id, name, enabled, access_enabled, preferred_broker_account_id,
+      `SELECT id, name, enabled, access_enabled,
+              COALESCE(risk_enabled, true) as risk_enabled,
+              preferred_broker_account_id,
               access_code_hash IS NOT NULL as has_access_code,
               panel_epic, panel_display_name, panel_lot_size, last_seen_at
        FROM clients WHERE id = $1`,

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Logo } from '../components/Logo';
 import { clientFetch, getClientToken, setClientToken } from '../hooks/useClientApi';
 import { useClientWebSocket } from '../hooks/useClientWebSocket';
+import '../styles/cyberpink.css';
+
+type Lang = 'lv' | 'ru' | 'en';
+type Gate = 'splash' | 'lang' | 'login' | 'app';
+type Tab = 'home' | 'trades' | 'settings';
 
 type Market = {
   instrument_id: number;
@@ -30,20 +34,74 @@ type Status = {
   client_name: string;
   connection_ok?: boolean;
   connection_status?: 'ONLINE' | 'LOST' | 'ERROR';
-  /** CONFIRMED runtime — green logo only when RUNNING */
   robot_status: 'RUNNING' | 'STARTING' | 'STOPPED' | 'ERROR';
   requested_status?: 'RUNNING' | 'STOPPED';
-  pipeline_healthy?: boolean;
-  market_analyzed?: boolean;
   broker_status?: 'CONNECTED' | 'DEGRADED' | 'UNKNOWN';
-  last_broker_ok_at?: string | null;
   broker_error?: string | null;
   status_reason?: string | null;
   market: string | null;
   display_name: string | null;
   lot_size: number | null;
+  risk_enabled?: boolean;
   live_trade: LiveTrade;
 };
+
+const I18N = {
+  lv: {
+    chooseLang: 'Izvēlies valodu',
+    password: 'Parole',
+    unlock: 'Atvērt',
+    market: 'Tirgus',
+    lot: 'Lot size',
+    liveTrade: 'LIVE TRADE',
+    start: 'START',
+    stop: 'STOP',
+    home: 'Sākums',
+    analytics: 'Analītika',
+    bot: 'Bots',
+    settings: 'Iestatījumi',
+    logout: 'Iziet',
+    noTrade: 'Nav atvērta darījuma',
+    riskOff: 'Risk izslēgts (admin)',
+    online: 'Sistēma online',
+  },
+  ru: {
+    chooseLang: 'Выберите язык',
+    password: 'Пароль',
+    unlock: 'Войти',
+    market: 'Рынок',
+    lot: 'Лот',
+    liveTrade: 'LIVE TRADE',
+    start: 'START',
+    stop: 'STOP',
+    home: 'Главная',
+    analytics: 'Аналитика',
+    bot: 'Бот',
+    settings: 'Настройки',
+    logout: 'Выйти',
+    noTrade: 'Нет открытой сделки',
+    riskOff: 'Risk выключен (admin)',
+    online: 'Система online',
+  },
+  en: {
+    chooseLang: 'Choose language',
+    password: 'Password',
+    unlock: 'Unlock',
+    market: 'Market',
+    lot: 'Lot size',
+    liveTrade: 'LIVE TRADE',
+    start: 'START',
+    stop: 'STOP',
+    home: 'Home',
+    analytics: 'Analytics',
+    bot: 'Bot',
+    settings: 'Settings',
+    logout: 'Log out',
+    noTrade: 'No open trade',
+    riskOff: 'Risk disabled (admin)',
+    online: 'System online',
+  },
+} as const;
 
 function roundLot(n: number, step: number) {
   const s = step > 0 ? step : 0.01;
@@ -52,41 +110,45 @@ function roundLot(n: number, step: number) {
 
 function fmtLot(n: number) {
   if (!Number.isFinite(n)) return '—';
-  const t = n.toFixed(4).replace(/\.?0+$/, '');
-  return t;
+  return n.toFixed(4).replace(/\.?0+$/, '');
 }
 
 export function ClientPanelPage() {
+  const [gate, setGate] = useState<Gate>(() => (getClientToken() ? 'app' : 'splash'));
+  const [tab, setTab] = useState<Tab>('home');
+  const [lang, setLang] = useState<Lang>(
+    () => (localStorage.getItem('vs_client_lang') as Lang) || 'lv'
+  );
   const [token, setToken] = useState<string | null>(() => getClientToken());
-  const [accessCode, setAccessCode] = useState('');
+  const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
   const [status, setStatus] = useState<Status | null>(null);
   const [markets, setMarkets] = useState<Market[]>([]);
   const [epic, setEpic] = useState('');
   const [lot, setLot] = useState(0.1);
-  const [flash, setFlash] = useState<'opened' | 'closed' | null>(null);
-  const [closedBanner, setClosedBanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selected = useMemo(
-    () => markets.find((m) => m.epic === epic) || null,
-    [markets, epic]
-  );
-
-  const confirmedRunning = status?.robot_status === 'RUNNING';
+  const t = I18N[lang];
+  const selected = useMemo(() => markets.find((m) => m.epic === epic) || null, [markets, epic]);
+  const running = status?.robot_status === 'RUNNING';
   const starting = status?.robot_status === 'STARTING';
   const errorState = status?.robot_status === 'ERROR';
-  /** Client requested START — lock config / allow STOP while confirming */
-  const requestedActive =
-    status?.requested_status === 'RUNNING' || confirmedRunning || starting || errorState;
+  const active =
+    status?.requested_status === 'RUNNING' || running || starting || errorState;
+  const riskOn = status?.risk_enabled !== false;
+
+  useEffect(() => {
+    if (gate !== 'splash') return;
+    const id = window.setTimeout(() => setGate('lang'), 1500);
+    return () => window.clearTimeout(id);
+  }, [gate]);
 
   const refresh = useCallback(async () => {
     const st = await clientFetch<Status>('/api/client/status');
     setStatus(st);
     if (st.market) setEpic(st.market);
-    if (st.lot_size != null) setLot(st.lot_size);
+    if (st.lot_size != null) setLot(Number(st.lot_size));
     return st;
   }, []);
 
@@ -97,7 +159,7 @@ export function ClientPanelPage() {
   }, []);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || gate !== 'app') return;
     setBusy(true);
     Promise.all([refresh(), loadMarkets()])
       .then(([st, mk]) => {
@@ -111,42 +173,27 @@ export function ClientPanelPage() {
         if (String(e).toLowerCase().includes('unauthorized')) {
           setClientToken(null);
           setToken(null);
+          setGate('login');
         }
       })
       .finally(() => setBusy(false));
-  }, [token, refresh, loadMarkets]);
+  }, [token, gate, refresh, loadMarkets]);
 
   useEffect(() => {
-    // Poll while STARTING or RUNNING so bridge confirmation flips to green logo
-    if (!token || !requestedActive) return;
-    const t = setInterval(() => {
-      void refresh().catch(() => undefined);
-    }, 3000);
-    return () => clearInterval(t);
-  }, [token, requestedActive, refresh]);
+    if (!token || !active || gate !== 'app') return;
+    const id = window.setInterval(() => void refresh().catch(() => undefined), 3000);
+    return () => window.clearInterval(id);
+  }, [token, active, gate, refresh]);
 
-  const { online } = useClientWebSocket(Boolean(token), (msg) => {
-    if (msg.type === 'trade_opened') {
-      setFlash('opened');
-      setClosedBanner(false);
-      void refresh();
-      setTimeout(() => setFlash(null), 1600);
-    } else if (msg.type === 'trade_closed') {
-      setFlash('closed');
-      setClosedBanner(true);
-      void refresh();
-      setTimeout(() => {
-        setFlash(null);
-        setClosedBanner(false);
-      }, 2200);
-    } else if (
-      msg.type === 'robot_started' ||
-      msg.type === 'robot_stopped' ||
-      msg.type === 'client_status'
-    ) {
-      void refresh();
-    }
+  useClientWebSocket(Boolean(token) && gate === 'app', () => {
+    void refresh().catch(() => undefined);
   });
+
+  const pickLang = (l: Lang) => {
+    setLang(l);
+    localStorage.setItem('vs_client_lang', l);
+    setGate(token ? 'app' : 'login');
+  };
 
   const login = async () => {
     setLoginError(null);
@@ -154,11 +201,13 @@ export function ClientPanelPage() {
     try {
       const res = await clientFetch<{ token: string }>('/api/client-auth/login', {
         method: 'POST',
-        body: JSON.stringify({ access_code: accessCode.trim() }),
+        body: JSON.stringify({ access_code: password.trim() }),
       });
       setClientToken(res.token);
       setToken(res.token);
-      setAccessCode('');
+      setPassword('');
+      setGate('app');
+      setTab('home');
     } catch (e) {
       setLoginError(e instanceof Error ? e.message : 'Login failed');
     } finally {
@@ -175,9 +224,10 @@ export function ClientPanelPage() {
     setClientToken(null);
     setToken(null);
     setStatus(null);
+    setGate('lang');
   };
 
-  const persistConfig = async (nextEpic: string, nextLot: number) => {
+  const persist = async (nextEpic: string, nextLot: number) => {
     await clientFetch('/api/client/config', {
       method: 'PUT',
       body: JSON.stringify({ epic: nextEpic, lot_size: nextLot }),
@@ -186,30 +236,28 @@ export function ClientPanelPage() {
   };
 
   const bumpLot = async (dir: -1 | 1) => {
-    if (!selected || requestedActive) return;
+    if (!selected || active || !riskOn) return;
     const step = selected.lot_step || 0.01;
     const next = Math.min(
       selected.max_lot,
       Math.max(selected.min_lot, roundLot(lot + dir * step, step))
     );
     setLot(next);
-    setError(null);
     try {
-      await persistConfig(selected.epic, next);
+      await persist(selected.epic, next);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Lot update failed');
     }
   };
 
-  const onMarketChange = async (value: string) => {
-    if (requestedActive) return;
+  const onMarket = async (value: string) => {
+    if (active || !riskOn) return;
     const m = markets.find((x) => x.epic === value);
     if (!m) return;
     setEpic(m.epic);
     setLot(m.min_lot);
-    setError(null);
     try {
-      await persistConfig(m.epic, m.min_lot);
+      await persist(m.epic, m.min_lot);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Market update failed');
     }
@@ -217,20 +265,21 @@ export function ClientPanelPage() {
 
   const toggleRobot = async () => {
     if (busy) return;
+    if (!active && !riskOn) {
+      setError(t.riskOff);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      if (!requestedActive) {
-        if (!epic) throw new Error('Select a market first');
-        await persistConfig(epic, lot);
+      if (!active) {
+        if (!epic) throw new Error('Select market');
+        await persist(epic, lot);
         const res = await clientFetch<{ status: Status }>('/api/client/start', {
           method: 'POST',
           body: JSON.stringify({}),
         });
         setStatus(res.status);
-        if (res.status.robot_status === 'ERROR') {
-          setError(res.status.broker_error || 'Start failed — check account / market');
-        }
       } else {
         const res = await clientFetch<{ status: Status }>('/api/client/stop', {
           method: 'POST',
@@ -250,189 +299,196 @@ export function ClientPanelPage() {
     }
   };
 
-  if (!token) {
-    return (
-      <div className="ccp-shell">
-        <div className="ccp-phone">
-          <div className="ccp-login">
-            <Logo size={88} />
-            <div className="ccp-brand">VS</div>
-            <div className="ccp-title">CLIENT CONTROL</div>
-            <label className="ccp-label" htmlFor="ccp-code">
-              Access Code
-            </label>
-            <input
-              id="ccp-code"
-              className="ccp-input"
-              inputMode="text"
-              autoComplete="one-time-code"
-              placeholder="••••••••••••"
-              value={accessCode}
-              onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void login();
-              }}
-            />
-            {loginError && <div className="ccp-error">{loginError}</div>}
-            <button className="ccp-login-btn" type="button" disabled={busy} onClick={() => void login()}>
-              LOGIN
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const live = status?.live_trade;
-  const statusClass = confirmedRunning
-    ? 'run'
-    : starting
-      ? 'starting'
-      : errorState
-        ? 'error'
-        : 'stop';
-  const statusLabel = confirmedRunning
-    ? 'RUNNING'
-    : starting
-      ? 'STARTING'
-      : errorState
-        ? 'ERROR'
-        : 'STOPPED';
-  const hintLabel = requestedActive ? 'TAP TO STOP' : 'TAP TO START';
-
   return (
-    <div className="ccp-shell">
-      <div className="ccp-phone">
-        <header className="ccp-top">
-          <div>
-            <div className="ccp-top-title">VS CONTROL PANEL</div>
-            <div className="ccp-client">{status?.client_name || '…'}</div>
+    <div className="cw-app">
+      <div className="cw-phone">
+        {gate === 'splash' && (
+          <div className="cw-splash">
+            <img className="cw-logo-full" src="/logo-full.png" alt="VS" />
+            <div className="cw-title">VS SYSTEM</div>
           </div>
-          <div
-            className={`ccp-conn ${
-              !online || status?.connection_status === 'LOST'
-                ? 'off'
-                : status?.connection_status === 'ERROR' || status?.broker_status === 'DEGRADED'
-                  ? 'warn'
-                  : 'on'
-            }`}
-          >
-            <span className="ccp-dot" />
-            {!online || status?.connection_status === 'LOST'
-              ? 'CONNECTION LOST'
-              : status?.connection_status === 'ERROR' || status?.broker_status === 'DEGRADED'
-                ? 'BROKER ERROR'
-                : 'SYSTEM ONLINE'}
+        )}
+
+        {gate === 'lang' && (
+          <div className="cw-lang">
+            <img className="cw-logo-sm" src="/logo-full.png" alt="VS" />
+            <div className="cw-title">{t.chooseLang}</div>
+            <div className="cw-btn-stack">
+              <button type="button" className="cw-btn lang" onClick={() => pickLang('lv')}>
+                Latviešu
+              </button>
+              <button type="button" className="cw-btn lang" onClick={() => pickLang('ru')}>
+                Русский
+              </button>
+              <button type="button" className="cw-btn lang" onClick={() => pickLang('en')}>
+                English
+              </button>
+            </div>
           </div>
-        </header>
+        )}
 
-        <section className="ccp-block">
-          <div className="ccp-label">MARKET</div>
-          <select
-            className="ccp-select"
-            value={epic}
-            disabled={requestedActive || busy || markets.length === 0}
-            onChange={(e) => void onMarketChange(e.target.value)}
-          >
-            {markets.length === 0 && <option value="">No markets — ask admin to pull Capital markets</option>}
-            {markets.map((m) => (
-              <option key={m.instrument_id} value={m.epic}>
-                {m.display_name} · {m.epic}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section className="ccp-block">
-          <div className="ccp-label">LOT SIZE</div>
-          <div className="ccp-lot">
-            <button type="button" className="ccp-lot-btn" disabled={requestedActive || busy} onClick={() => void bumpLot(-1)}>
-              −
-            </button>
-            <div className="ccp-lot-val">{fmtLot(lot)}</div>
-            <button type="button" className="ccp-lot-btn" disabled={requestedActive || busy} onClick={() => void bumpLot(1)}>
-              +
-            </button>
+        {gate === 'login' && (
+          <div className="cw-login">
+            <img className="cw-logo-sm" src="/logo-full.png" alt="VS" />
+            <div className="cw-title">VS SYSTEM</div>
+            <div className="cw-field">
+              <label htmlFor="cw-pass">{t.password}</label>
+              <input
+                id="cw-pass"
+                className="cw-input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void login();
+                }}
+                autoComplete="current-password"
+              />
+            </div>
+            {loginError && <div className="cp-error">{loginError}</div>}
+            <div className="cw-btn-stack">
+              <button type="button" className="cw-btn primary" disabled={busy} onClick={() => void login()}>
+                {t.unlock}
+              </button>
+            </div>
           </div>
-          {selected && (
-            <div className="ccp-lot-meta">
-              min {fmtLot(selected.min_lot)} · max {fmtLot(selected.max_lot)} · step{' '}
-              {fmtLot(selected.lot_step)}
-            </div>
-          )}
-        </section>
+        )}
 
-        <section className="ccp-start">
-          <button
-            type="button"
-            className={`ccp-logo-btn ${
-              confirmedRunning ? 'running' : starting ? 'starting' : errorState ? 'error' : 'stopped'
-            }`}
-            disabled={busy}
-            onClick={() => void toggleRobot()}
-            aria-label={requestedActive ? 'Stop robot' : 'Start robot'}
-          >
-            <span
-              className={`ccp-logo-spin ${
-                confirmedRunning ? 'on' : starting ? 'pulse' : ''
-              }`}
-            >
-              <Logo size={132} />
-            </span>
-          </button>
-          <div className={`ccp-status ${statusClass}`}>{statusLabel}</div>
-          <div className="ccp-hint">
-            {errorState
-              ? status?.broker_error || status?.status_reason || 'SYSTEM ERROR — TAP TO STOP'
-              : starting
-                ? 'WAITING FOR MARKET READER'
-                : hintLabel}
-          </div>
-        </section>
+        {gate === 'app' && (
+          <>
+            <div style={{ textAlign: 'center' }}>
+              <img className="cw-logo-sm" src="/logo-full.png" alt="VS" />
+              <div className="cw-client-name">{status?.client_name || '…'}</div>
+              <div className="cp-muted">{t.online}</div>
+            </div>
 
-        <section className={`ccp-live ${flash === 'opened' ? 'flash-open' : ''} ${flash === 'closed' ? 'flash-close' : ''}`}>
-          <div className="ccp-live-title">LIVE TRADE</div>
-          {closedBanner && !live ? (
-            <div className="ccp-live-body">
-              <div className="ccp-live-state">TRADE CLOSED</div>
-            </div>
-          ) : live ? (
-            <div className="ccp-live-body">
-              <div className="ccp-live-state">TRADE OPENED</div>
-              <div className="ccp-live-market">{live.display_name || live.market}</div>
-              <div className="ccp-live-type">{live.trade_type}</div>
-              {live.regime && live.regime !== 'UNKNOWN' && (
-                <div className="ccp-live-regime">{live.regime}</div>
-              )}
-              <div className="ccp-live-lot">{fmtLot(live.lot_size)} LOT</div>
-              {live.entry_price != null && (
-                <div className="ccp-live-entry">ENTRY {live.entry_price}</div>
-              )}
-            </div>
-          ) : confirmedRunning ? (
-            <div className="ccp-live-body">
-              <div className="ccp-live-wait">WAITING FOR TRADE</div>
-            </div>
-          ) : starting ? (
-            <div className="ccp-live-body">
-              <div className="ccp-live-wait">CONNECTING PIPELINE</div>
-            </div>
-          ) : errorState ? (
-            <div className="ccp-live-body">
-              <div className="ccp-live-wait">PIPELINE ERROR</div>
-            </div>
-          ) : (
-            <div className="ccp-live-body">
-              <div className="ccp-live-wait dim">NO ACTIVE ROBOT</div>
-            </div>
-          )}
-        </section>
+            {tab === 'home' && (
+              <>
+                <button
+                  type="button"
+                  className={`cw-robot ${running ? 'running' : ''}`}
+                  disabled={busy}
+                  onClick={() => void toggleRobot()}
+                  aria-label={active ? t.stop : t.start}
+                >
+                  <span className="bot">🤖</span>
+                </button>
+                <div className="cw-robot-meta">
+                  <span className="start">{t.start}</span>
+                  <span className="stop">{t.stop}</span>
+                </div>
+                {!riskOn && <div className="cp-error">{t.riskOff}</div>}
 
-        {error && <div className="ccp-error">{error}</div>}
+                <div className="cw-card">
+                  <div className="cap">{t.market}</div>
+                  <select
+                    className="cw-select"
+                    value={epic}
+                    disabled={active || busy || !riskOn || markets.length === 0}
+                    onChange={(e) => void onMarket(e.target.value)}
+                  >
+                    {markets.length === 0 && <option value="">—</option>}
+                    {markets.map((m) => (
+                      <option key={m.instrument_id} value={m.epic}>
+                        {m.display_name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="cap" style={{ marginTop: '0.85rem' }}>
+                    {t.lot}
+                  </div>
+                  <div className="cw-lot-row">
+                    <button
+                      type="button"
+                      className="cw-lot-btn"
+                      disabled={active || !riskOn}
+                      onClick={() => void bumpLot(-1)}
+                    >
+                      −
+                    </button>
+                    <div className="cw-lot-val">{fmtLot(lot)}</div>
+                    <button
+                      type="button"
+                      className="cw-lot-btn"
+                      disabled={active || !riskOn}
+                      onClick={() => void bumpLot(1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
 
-        <button type="button" className="ccp-logout" onClick={() => void logout()}>
-          LOGOUT
-        </button>
+                <div className="cw-card cw-live">
+                  <div className="cap">{t.liveTrade}</div>
+                  {status?.live_trade ? (
+                    <div>
+                      <div>
+                        {status.live_trade.side} ·{' '}
+                        {status.live_trade.display_name || status.live_trade.market}
+                      </div>
+                      <div className="cp-muted">
+                        {fmtLot(status.live_trade.lot_size)} · entry{' '}
+                        {status.live_trade.entry_price ?? '—'}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="cp-muted">{t.noTrade}</div>
+                  )}
+                </div>
+                {error && <div className="cp-error">{error}</div>}
+              </>
+            )}
+
+            {tab === 'trades' && (
+              <div className="cw-card">
+                <div className="cap">{t.analytics}</div>
+                <div className="cp-muted">{status?.display_name || status?.market || '—'}</div>
+                <div className="cp-muted">Robot: {status?.robot_status || '—'}</div>
+              </div>
+            )}
+
+            {tab === 'settings' && (
+              <div className="cw-card">
+                <div className="cap">{t.settings}</div>
+                <div className="cw-btn-stack">
+                  <button type="button" className="cw-btn lang" onClick={() => setGate('lang')}>
+                    {t.chooseLang}
+                  </button>
+                  <button type="button" className="cw-btn" onClick={() => void logout()}>
+                    {t.logout}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <nav className="cw-nav">
+              <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}>
+                <span className="ico">⌂</span>
+                {t.home}
+              </button>
+              <button
+                type="button"
+                className={tab === 'trades' ? 'active' : ''}
+                onClick={() => setTab('trades')}
+              >
+                <span className="ico">▣</span>
+                {t.analytics}
+              </button>
+              <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}>
+                <span className="ico">🤖</span>
+                {t.bot}
+              </button>
+              <button
+                type="button"
+                className={tab === 'settings' ? 'active' : ''}
+                onClick={() => setTab('settings')}
+              >
+                <span className="ico">⚙</span>
+                {t.settings}
+              </button>
+            </nav>
+          </>
+        )}
       </div>
     </div>
   );

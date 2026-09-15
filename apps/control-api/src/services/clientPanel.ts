@@ -58,6 +58,7 @@ export type ClientPanelStatus = {
   display_name: string | null;
   lot_size: number | null;
   account_id: number | null;
+  risk_enabled: boolean;
   live_trade: ClientLiveTrade;
   last_seen_at: string | null;
   /** Human-readable reason for STARTING/ERROR */
@@ -211,7 +212,8 @@ function robotForAccount(accountId: number, epic?: string | null) {
 export async function getClientPanelStatus(clientId: number): Promise<ClientPanelStatus> {
   const { rows } = await pool.query(
     `SELECT id, name, panel_epic, panel_display_name, panel_lot_size,
-            panel_robot_requested, last_seen_at
+            panel_robot_requested, last_seen_at,
+            COALESCE(risk_enabled, true) as risk_enabled
      FROM clients WHERE id = $1`,
     [clientId]
   );
@@ -224,6 +226,7 @@ export async function getClientPanelStatus(clientId: number): Promise<ClientPane
     panel_lot_size: string | number | null;
     panel_robot_requested: string;
     last_seen_at: Date | string | null;
+    risk_enabled: boolean;
   };
   const account = await resolveClientTradingAccount(clientId);
   const requestedRunning = String(c.panel_robot_requested || '').toUpperCase() === 'RUNNING';
@@ -352,6 +355,7 @@ export async function getClientPanelStatus(clientId: number): Promise<ClientPane
     display_name: c.panel_display_name,
     lot_size: c.panel_lot_size != null ? Number(c.panel_lot_size) : null,
     account_id: account?.account_id ?? null,
+    risk_enabled: c.risk_enabled !== false,
     live_trade,
     last_seen_at: c.last_seen_at ? new Date(c.last_seen_at).toISOString() : null,
   };
@@ -392,7 +396,8 @@ export async function saveClientConfig(
  */
 export async function startClientRobot(clientId: number): Promise<ClientPanelStatus> {
   const { rows } = await pool.query(
-    `SELECT panel_epic, panel_display_name, panel_lot_size, enabled, access_enabled
+    `SELECT panel_epic, panel_display_name, panel_lot_size, enabled, access_enabled,
+            COALESCE(risk_enabled, true) as risk_enabled
      FROM clients WHERE id = $1`,
     [clientId]
   );
@@ -403,9 +408,11 @@ export async function startClientRobot(clientId: number): Promise<ClientPanelSta
     panel_lot_size: string | number | null;
     enabled: boolean;
     access_enabled: boolean;
+    risk_enabled: boolean;
   };
   if (!c.enabled) throw new Error('Client disabled');
   if (!c.access_enabled) throw new Error('Client access disabled');
+  if (!c.risk_enabled) throw new Error('Risk locked by admin');
   if (!c.panel_epic || c.panel_lot_size == null) {
     throw new Error('Select market and lot size before START');
   }

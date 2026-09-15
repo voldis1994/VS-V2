@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { ClientPanelPage } from './pages/ClientPanelPage';
 import './styles/global.css';
 
-/** Client-only entry — share this app URL with clients (no admin desk). */
+/** Public client website entry (deploy dist-client). */
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
