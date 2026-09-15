@@ -12,7 +12,7 @@ color 0A
 
 echo.
 echo ============================================================
-echo   VS-V2 Install.bat  —  first-time setup
+echo   VS-V2 Install.bat  -  first-time setup
 echo   OPERATING_MODE=PAPER  ^|  LIVE trading OFF
 echo ============================================================
 echo   Folder: %ROOT%
@@ -26,7 +26,7 @@ if not exist "%ROOT%\package.json" (
 )
 if not exist "%ROOT%\apps\control-api\package.json" (
   color 0C
-  echo [FAIL] Missing apps\control-api — wrong folder?
+  echo [FAIL] Missing apps\control-api - wrong folder?
   pause
   exit /b 1
 )

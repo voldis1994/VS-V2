@@ -78,7 +78,7 @@ function Test-CommandExists([string]$Name) {
 
 function Update-SessionPath {
     # winget installs often update Machine/User PATH, but the current cmd/powershell
-    # session keeps the old PATH — refresh so newly installed tools are visible.
+    # session keeps the old PATH - refresh so newly installed tools are visible.
     $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $user = [Environment]::GetEnvironmentVariable('Path', 'User')
     if ($machine -or $user) {
@@ -178,13 +178,13 @@ function Ensure-Tool {
             return $true
         }
     } elseif ($WingetId) {
-        Write-Warn 'winget not found — cannot auto-install; install the tool manually'
+        Write-Warn 'winget not found - cannot auto-install; install the tool manually'
     }
 
     if ($Required) {
         $hint = switch -Regex ($Name) {
             '^cmake' {
-                'Install CMake (add to PATH), or: winget install -e --id Kitware.CMake — then close this window and re-run Install.bat'
+                'Install CMake (add to PATH), or: winget install -e --id Kitware.CMake - then close this window and re-run Install.bat'
             }
             default {
                 "Install it, close this window, then re-run Install.bat. winget id: $WingetId"
@@ -234,7 +234,7 @@ function Ensure-MsvcBuildTools {
     if (-not (Test-CommandExists 'winget')) {
         throw 'MSVC Build Tools missing and winget not found. Install "Desktop development with C++" (VS 2022 Build Tools), close this window, re-run Install.bat.'
     }
-    Write-Step 'Installing Visual Studio 2022 Build Tools (C++ workload) — may take several minutes'
+    Write-Step 'Installing Visual Studio 2022 Build Tools (C++ workload) - may take several minutes'
     $override = '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
     & winget install -e --id Microsoft.VisualStudio.2022.BuildTools `
         --accept-package-agreements --accept-source-agreements --disable-interactivity `
@@ -281,7 +281,7 @@ function Ensure-Vcpkg {
         Write-Step 'Bootstrapping vcpkg.exe'
         $bootstrap = Join-Path $local 'bootstrap-vcpkg.bat'
         if (-not (Test-Path -LiteralPath $bootstrap)) {
-            throw "Missing $bootstrap — delete tools\vcpkg and re-run Install.bat"
+            throw "Missing $bootstrap - delete tools\vcpkg and re-run Install.bat"
         }
         Push-Location $local
         try {
@@ -356,7 +356,7 @@ function Invoke-PaperPreflight {
             throw 'Capital LIVE market-data not ready (PAPER_REQUIRE_CAPITAL=1)'
         }
         if (-not $pf.data_ready) {
-            Write-Warn 'Capital credentials incomplete — market-core may idle without LIVE market data (still no orders)'
+            Write-Warn 'Capital credentials incomplete - market-core may idle without LIVE market data (still no orders)'
         }
     } catch {
         if ($_.Exception.Message -match 'Safety abort|preflight fail|Capital LIVE|unreachable') { throw }

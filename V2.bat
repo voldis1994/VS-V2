@@ -11,9 +11,9 @@ color 0A
 
 echo.
 echo ============================================================
-echo   VS-V2  V2.bat  —  daily PAPER launch
+echo   VS-V2  V2.bat  -  daily PAPER launch
 echo   Control API + Market Core + Dashboard
-echo   LIVE trading OFF — broker orders forbidden
+echo   LIVE trading OFF - broker orders forbidden
 echo ============================================================
 echo   Folder: %ROOT%
 echo.
@@ -26,7 +26,7 @@ if not exist "%ROOT%\package.json" (
 )
 if not exist "%ROOT%\scripts\windows\start-v2.ps1" (
   color 0C
-  echo [FAIL] Missing scripts\windows\start-v2.ps1 — run Install.bat / pull latest.
+  echo [FAIL] Missing scripts\windows\start-v2.ps1 - run Install.bat / pull latest.
   pause
   exit /b 1
 )
