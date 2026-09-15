@@ -9,8 +9,9 @@ import {
   DeskStatus,
 } from './DeskContext';
 
-const NAV = [
-  { to: '/', label: 'LIVE', end: true },
+const NAV: Array<{ to: string; label: string; end?: boolean }> = [
+  { to: '/control', label: 'CONTROL', end: true },
+  { to: '/live', label: 'LIVE' },
   { to: '/overview', label: 'OVERVIEW' },
   { to: '/markets', label: 'MARKETS' },
   { to: '/brain', label: 'BRAIN' },
@@ -24,7 +25,7 @@ const NAV = [
   { to: '/learning', label: 'LEARNING' },
   { to: '/diagnostics', label: 'DIAGNOSTICS' },
   { to: '/trading', label: 'TRADING' },
-  { to: '/clients', label: 'CLIENTS' },
+  { to: '/control/clients', label: 'CLIENTS' },
   { to: '/settings', label: 'SETTINGS' },
 ];
 

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 import { allowTunnelHosts } from './vite.allow-tunnels';
 
 /**
@@ -11,18 +12,7 @@ import { allowTunnelHosts } from './vite.allow-tunnels';
  * Build: npm run build:client  then  npm run dev:client
  */
 export default defineConfig({
-  plugins: [
-    allowTunnelHosts(),
-    react(),
-    {
-      name: 'client-entry',
-      transformIndexHtml(html) {
-        return html
-          .replace('/src/main.tsx', '/src/main.client.tsx')
-          .replace('<title>VS SYSTEM</title>', '<title>VS Client Control</title>');
-      },
-    },
-  ],
+  plugins: [allowTunnelHosts(), react()],
   define: {
     'import.meta.env.VITE_APP_MODE': JSON.stringify('client'),
     // Force same-origin — never point remote phones at localhost:3000
@@ -54,5 +44,8 @@ export default defineConfig({
   build: {
     outDir: 'dist-client',
     emptyOutDir: true,
+    rollupOptions: {
+      input: fileURLToPath(new URL('./index.client.html', import.meta.url)),
+    },
   },
 });
