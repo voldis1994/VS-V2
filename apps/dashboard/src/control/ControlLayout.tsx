@@ -41,34 +41,24 @@ export function ControlLayout() {
   const [apiDetail, setApiDetail] = useState<string>('');
 
   const probeApi = useCallback(async () => {
-    // Prefer Vite proxy /health; also probe direct :3000 to tell proxy vs process-down apart.
-    let proxyOk = false;
-    let directOk = false;
+    // Only same-origin relative URLs (Vite proxy). Never probe localhost:3000 from the browser
+    // (Windows localhost -> ::1 + CORS noise caused false "API online").
     try {
-      const res = await fetch('/health', { headers: { Accept: 'application/json' } });
-      proxyOk = res.ok;
-    } catch {
-      proxyOk = false;
-    }
-    try {
-      const res = await fetch('http://127.0.0.1:3000/health', {
-        headers: { Accept: 'application/json' },
-        mode: 'cors',
-      });
-      directOk = res.ok;
-    } catch {
-      directOk = false;
-    }
-    if (proxyOk) {
+      const health = await fetch('/health', { headers: { Accept: 'application/json' } });
+      if (!health.ok) throw new Error(`health ${health.status}`);
+      // Prove admin API path works too (not only public /health).
+      const clients = await fetch('/api/clients', { headers: { Accept: 'application/json' } });
+      if (clients.status === 401) {
+        setApiOk(false);
+        setApiDetail('API up but admin token missing — restart VS-Dashboard via V2.bat');
+        return;
+      }
+      if (!clients.ok) throw new Error(`clients ${clients.status}`);
       setApiOk(true);
-      setApiDetail(directOk ? 'Control API :3000' : 'API via proxy (direct CORS ok to ignore)');
-      return;
-    }
-    setApiOk(false);
-    if (directOk) {
-      setApiDetail('API :3000 live but Vite proxy broken — restart VS-Dashboard');
-    } else {
-      setApiDetail('API offline — V2.bat or Restart-ControlAPI.bat');
+      setApiDetail('Control API :3000');
+    } catch {
+      setApiOk(false);
+      setApiDetail('API offline — Restart-ControlAPI.bat (node only, never npm)');
     }
   }, []);
 

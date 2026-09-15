@@ -29,6 +29,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [allowTunnelHosts(), react()],
+    // Always same-origin /api via Vite proxy. A .env VITE_API_URL=http://localhost:3000
+    // breaks Windows (localhost -> ::1) and bypasses admin-token injection.
+    define: {
+      'import.meta.env.VITE_API_URL': JSON.stringify(''),
+    },
     server: {
       port: 5173,
       host: '127.0.0.1',

@@ -252,13 +252,66 @@ if (-not $DryRun -and (Test-Path -LiteralPath $migSrc)) {
 Write-Ok "control-api via node.exe (not npm): $nodeExe"
 Write-Host "  entry: $distJs"
 if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$envPaper" }
-Start-LoggedProcess -Title 'VS-ControlAPI' -FilePath $nodeExe `
-    -Arguments $nodeArgs `
-    -WorkingDirectory $Root -LogName 'control-api.paper.log' -ExtraEnv $apiExtra | Out-Null
+
+# Pure CMD launcher for Control API - NEVER PowerShell/$args/npm (npm-cli.js MODULE_NOT_FOUND on Windows).
+$apiEnvLines = @(
+    'set OPERATING_MODE=PAPER',
+    'set LIVE_TRADING_ENABLED=false',
+    'set CONTROL_API_HOST=0.0.0.0',
+    'set CONTROL_API_PORT=3000',
+    'set npm_config_prefix=',
+    'set PREFIX=',
+    'set VITE_API_URL='
+)
+foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL')) {
+    if ($apiExtra.ContainsKey($k)) {
+        $apiEnvLines += ('set {0}={1}' -f $k, $apiExtra[$k])
+    } else {
+        $v = [Environment]::GetEnvironmentVariable($k, 'Process')
+        if ($null -ne $v -and "$v" -ne '') { $apiEnvLines += ('set {0}={1}' -f $k, $v) }
+    }
+}
+$apiCmd = @"
+@echo off
+title VS-ControlAPI
+color 0A
+cd /d "$Root"
+$($apiEnvLines -join "`r`n")
+echo ============================================================
+echo   VS-ControlAPI
+echo   PAPER only - node.exe ONLY (never npm / npm.ps1)
+echo   node: $nodeExe
+echo   entry: $distJs
+echo   Log: $apiLog
+echo   Close this window to stop Control API.
+echo ============================================================
+echo [%date% %time%] starting VS-ControlAPI>> "$apiLog"
+echo [%date% %time%] exe=$nodeExe>> "$apiLog"
+echo [%date% %time%] entry=$distJs>> "$apiLog"
+echo Starting:
+echo   "$nodeExe" "$distJs"
+"$nodeExe" "$distJs" 1>> "$apiLog" 2>&1
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] exited VS-ControlAPI code=%RC%>> "$apiLog"
+echo.
+echo [VS-ControlAPI] exited with code %RC%
+echo If log shows npm-cli.js / npm-prefix.js - pull latest main and re-run V2.bat
+echo Log: $apiLog
+pause
+"@
+if ($DryRun) {
+    Write-Host '[dry-run] start VS-ControlAPI via node.exe only'
+} else {
+    $apiLauncher = Join-Path $env:TEMP 'vs-v2-VS-ControlAPI-node-only.cmd'
+    Set-Content -LiteralPath $apiLauncher -Value $apiCmd -Encoding ASCII
+    $apiProc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$apiLauncher`"") -WorkingDirectory $Root -PassThru -WindowStyle Normal
+    Set-Content -LiteralPath (Join-Path $logs 'control-api.paper.log.pid') -Value $apiProc.Id
+    Write-Ok "VS-ControlAPI CMD opened pid=$($apiProc.Id) (node-only)"
+}
 
 # --- 2) Market Core (separate CMD) ---
-$exe = Get-MarketCoreExe -Root $Root
-if ($SkipMarketCore) {
+# Control API uses node-only CMD above (never Start-LoggedProcess / npm).
+$exe = Get-MarketCoreExe -Root $Rootif ($SkipMarketCore) {
     Write-Warn 'SkipMarketCore set - Market Core CMD will not open'
 } elseif (-not $exe -and -not $DryRun) {
     throw 'market-core binary not found. Run Install.bat first.'
@@ -286,6 +339,9 @@ Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $sysNode `
         OPERATING_MODE       = 'PAPER'
         LIVE_TRADING_ENABLED = 'false'
         npm_config_prefix    = ''
+        # Force same-origin Vite proxy - never hit localhost:3000 (Windows ::1 miss).
+        VITE_API_URL         = ''
+        API_ADMIN_TOKEN      = $(if ($env:API_ADMIN_TOKEN) { $env:API_ADMIN_TOKEN } else { '' })
     } | Out-Null
 
 Write-Ok 'All service CMD windows launched (Control API + Market Core + Dashboard)'
