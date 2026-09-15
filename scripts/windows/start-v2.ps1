@@ -17,7 +17,7 @@ Assert-VsRepoRoot -Root $Root
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  VS-V2 V2.bat — daily PAPER launch' -ForegroundColor Green
+Write-Host '  VS-V2 V2.bat - daily PAPER launch' -ForegroundColor Green
 Write-Host '============================================================' -ForegroundColor Green
 Write-Host "  Root: $Root"
 Write-Host '  Default mode: PAPER | LIVE trading: OFF | No broker orders'
@@ -25,7 +25,7 @@ Write-Host ''
 
 $marker = Join-Path $Root '.vs-v2-installed'
 if (-not (Test-Path -LiteralPath $marker)) {
-    Write-Warn 'Install marker .vs-v2-installed missing — run Install.bat once first'
+    Write-Warn 'Install marker .vs-v2-installed missing - run Install.bat once first'
     if (-not $DryRun -and -not (Test-Path (Join-Path $Root 'node_modules'))) {
         throw 'node_modules missing. Run Install.bat before V2.bat.'
     }
@@ -38,7 +38,7 @@ Assert-PaperFailClosed
 # Admin API token: dashboard Vite proxy injects x-admin-token from this process env.
 if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKEN') {
     if ($env:ALLOW_INSECURE_ADMIN -ne 'true') {
-        Write-Warn 'API_ADMIN_TOKEN is CHANGE_ME/empty — control-api will refuse admin routes. Re-run Install.bat or set ALLOW_INSECURE_ADMIN=true for local-only.'
+        Write-Warn 'API_ADMIN_TOKEN is CHANGE_ME/empty - control-api will refuse admin routes. Re-run Install.bat or set ALLOW_INSECURE_ADMIN=true for local-only.'
     }
 } else {
     Write-Ok 'API_ADMIN_TOKEN loaded for dashboard proxy'
@@ -58,7 +58,7 @@ try {
     Start-DockerDeps -Root $Root -DryRun:$DryRun
 } catch {
     Write-Warn $_.Exception.Message
-    Write-Warn 'Continuing — if DB is already local, API may still work'
+    Write-Warn 'Continuing - if DB is already local, API may still work'
 }
 
 function Start-LoggedProcess {
@@ -107,7 +107,7 @@ echo [%date% %time%] starting $Title>> "$logPath"
 Write-Step 'Starting Control API'
 $apiScript = 'start'
 if (-not (Test-Path (Join-Path $Root 'apps\control-api\dist\index.js'))) {
-    Write-Warn 'control-api dist missing — using npm run dev (run Install.bat for production start)'
+    Write-Warn 'control-api dist missing - using npm run dev (run Install.bat for production start)'
     $apiScript = 'dev'
 }
 Start-LoggedProcess -Title 'VS-ControlAPI' -FilePath 'npm.cmd' `

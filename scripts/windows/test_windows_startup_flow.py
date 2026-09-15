@@ -285,6 +285,20 @@ def test_vs_bat_quarantined() -> list[str]:
     return errs
 
 
+
+def test_ps1_ascii_only() -> list[str]:
+    """Windows PowerShell 5.1 mangles UTF-8 em-dashes and breaks strings (Install.bat parse errors)."""
+    errs: list[str] = []
+    for rel in (
+        "scripts/windows/common.ps1",
+        "scripts/windows/install.ps1",
+        "scripts/windows/start-v2.ps1",
+    ):
+        data = (ROOT / rel).read_bytes()
+        if any(b > 127 for b in data):
+            errs.append(f"{rel}: contains non-ASCII bytes (use ASCII-only; WP5.1 breaks on em-dash)")
+    return errs
+
 def main() -> int:
     os.environ["OPERATING_MODE"] = "PAPER"
     os.environ["LIVE_TRADING_ENABLED"] = "false"
@@ -297,6 +311,7 @@ def main() -> int:
         ("simulate_v2", simulate_v2_dry_run),
         ("no_live_orders", test_no_live_order_paths),
         ("vs_bat_quarantined", test_vs_bat_quarantined),
+        ("ps1_ascii_only", test_ps1_ascii_only),
     ]
     failed = 0
     for name, fn in suites:

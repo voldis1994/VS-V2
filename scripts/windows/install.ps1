@@ -16,13 +16,13 @@ Assert-VsRepoRoot -Root $Root
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  VS-V2 Install.bat — first-time setup (PAPER only)' -ForegroundColor Green
+Write-Host '  VS-V2 Install.bat - first-time setup (PAPER only)' -ForegroundColor Green
 Write-Host '============================================================' -ForegroundColor Green
 Write-Host "  Root: $Root"
 Write-Host '  LIVE trading will NOT be started.'
 Write-Host ''
 
-if ($DryRun) { Write-Warn 'DRY RUN — checks only; no installs/builds' }
+if ($DryRun) { Write-Warn 'DRY RUN - checks only; no installs/builds' }
 
 Write-Step 'Checking dependencies'
 [void](Ensure-Tool -Name 'git' -WingetId 'Git.Git' -Required -DryRun:$DryRun)
@@ -170,7 +170,7 @@ if (-not $SkipCppBuild) {
             throw 'vcpkg toolchain missing. Ensure-Vcpkg must succeed before cmake (fmt comes from vcpkg).'
         }
         if (-not $env:VCPKG_ROOT) {
-            throw 'VCPKG_ROOT is not set — required by CMakePresets.json windows-release'
+            throw 'VCPKG_ROOT is not set - required by CMakePresets.json windows-release'
         }
         Write-Ok "cmake toolchain: $toolchain"
 
@@ -189,7 +189,7 @@ if (-not $SkipCppBuild) {
             if (-not (Test-Path -LiteralPath $buildDir)) {
                 New-Item -ItemType Directory -Path $buildDir | Out-Null
             }
-            # Never configure without vcpkg on Windows — bare find_package(fmt) fails exactly like the Install.bat screenshot.
+            # Never configure without vcpkg on Windows - bare find_package(fmt) fails exactly like the Install.bat screenshot.
             $genArgs = @()
             if (Resolve-Tool -Name 'ninja') {
                 $genArgs += @('-G', 'Ninja')
@@ -200,7 +200,7 @@ if (-not $SkipCppBuild) {
                 -DVCPKG_TARGET_TRIPLET=x64-windows `
                 -DMR_BUILD_TESTS=OFF
             if ($LASTEXITCODE -ne 0) {
-                throw 'cmake configure failed (vcpkg toolchain). First run downloads fmt/spdlog/etc — check network, then re-run Install.bat.'
+                throw 'cmake configure failed (vcpkg toolchain). First run downloads fmt/spdlog/etc - check network, then re-run Install.bat.'
             }
             & $cmake --build $buildDir --target market-core -j
             if ($LASTEXITCODE -ne 0) { throw 'cmake build market-core failed' }
@@ -210,7 +210,7 @@ if (-not $SkipCppBuild) {
         Write-Ok "market-core built: $exe"
     }
 } else {
-    Write-Warn 'SkipCppBuild set — market-core build skipped'
+    Write-Warn 'SkipCppBuild set - market-core build skipped'
 }
 
 Write-Step 'Installation verification (no LIVE start)'
@@ -242,7 +242,7 @@ Write-Ok 'wrote .vs-v2-installed marker'
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  INSTALL COMPLETE — PAPER only, LIVE not started' -ForegroundColor Green
+Write-Host '  INSTALL COMPLETE - PAPER only, LIVE not started' -ForegroundColor Green
 Write-Host '  Next: double-click V2.bat for daily PAPER launch' -ForegroundColor Green
 Write-Host '============================================================' -ForegroundColor Green
 exit 0
