@@ -157,7 +157,8 @@ export function ControlClientsPage() {
           <div>
             <h2>ADD CLIENT</h2>
             <p className="cp-muted">
-              Vārds + web parole + Capital API. Brokeris saglabājas šifrēts. Parole rādās vienreiz.
+              Vārds + web parole + Capital API šeit (nevis vecajā /brokers desk). Brokeris
+              saglabājas šifrēts. Parole rādās vienreiz.
             </p>
           </div>
         </div>

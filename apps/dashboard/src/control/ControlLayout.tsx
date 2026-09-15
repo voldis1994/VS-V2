@@ -139,7 +139,7 @@ export function ControlLayout() {
             <div className={apiOk ? 'online' : 'offline'}>
               {apiOk === null ? '● Checking API…' : apiOk ? '● API online' : '● API offline'}
             </div>
-            <div>{apiDetail}</div>
+            <div>{apiDetail || 'VS Control Panel'}</div>
           </div>
         </aside>
 

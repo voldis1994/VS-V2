@@ -1,27 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { useMarketStore } from '../src/state/marketStore';
-import { useBrainStore } from '../src/state/brainStore';
+import { apiFetch, useApi } from '../src/hooks/useApi';
+import { clientFetch, getClientToken, setClientToken } from '../src/hooks/useClientApi';
+import { useWebSocket, subscribeWs } from '../src/hooks/useWebSocket';
+import { useClientWebSocket } from '../src/hooks/useClientWebSocket';
 
-describe('VS-V2 dashboard stores', () => {
-  it('exposes market store API', () => {
-    const state = useMarketStore.getState();
-    expect(state).toBeTruthy();
-    expect(typeof state).toBe('object');
+describe('VS Control Panel + Client surface', () => {
+  it('exposes control API helpers', () => {
+    expect(typeof apiFetch).toBe('function');
+    expect(typeof useApi).toBe('function');
+    expect(typeof useWebSocket).toBe('function');
+    expect(typeof subscribeWs).toBe('function');
   });
 
-  it('exposes brain store API', () => {
-    const state = useBrainStore.getState();
-    expect(state).toBeTruthy();
-  });
-});
-
-import { useLiveBrainStore } from '../src/state/liveBrainStore';
-
-describe('live brain terminal store', () => {
-  it('exposes live brain store API', () => {
-    const state = useLiveBrainStore.getState();
-    expect(typeof state.fetchLive).toBe('function');
-    expect(typeof state.applySnapshot).toBe('function');
-    expect(state.status?.invents_decisions ?? false).toBe(false);
+  it('exposes client API helpers', () => {
+    expect(typeof clientFetch).toBe('function');
+    expect(typeof getClientToken).toBe('function');
+    expect(typeof setClientToken).toBe('function');
+    expect(typeof useClientWebSocket).toBe('function');
   });
 });
