@@ -19,7 +19,12 @@ dist-client/
 
 # Environment
 .env
+.env.paper
 !.env.example
+!.env.paper.example
+
+# Windows install marker
+.vs-v2-installed
 
 # Data
 data/raw/**

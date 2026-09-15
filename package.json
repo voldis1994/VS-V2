@@ -12,6 +12,7 @@
     "test": "npm test --workspaces",
     "migrate": "npm run migrate --workspace=@vs-v2/control-api",
     "preflight:paper": "bash scripts/preflight-paper.sh",
-    "start:paper": "bash scripts/start-paper.sh"
+    "start:paper": "bash scripts/start-paper.sh",
+    "test:windows-startup": "python3 scripts/windows/test_windows_startup_flow.py"
   }
 }
