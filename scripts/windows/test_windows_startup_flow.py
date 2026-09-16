@@ -197,6 +197,7 @@ def test_v2_flow() -> list[str]:
             "node.exe ONLY",
             "VS-ControlAPI-node-only",
             "Ensure-ControlApiDist",
+            "Assert-ControlApiDist",
             "npm_config_prefix",
             "bypass npm.ps1",
             "WindowStyle Normal",
@@ -216,7 +217,9 @@ def test_v2_flow() -> list[str]:
         common,
         [
             "function Ensure-ControlApiDist",
+            "function Assert-ControlApiDist",
             "function Test-ControlApiCriticalRoutes",
+            "npm run build --workspace=@vs-v2/control-api",
             "copy-migrations",
             "/api/feeds/probe",
             "/api/news/desk",
@@ -279,6 +282,7 @@ def test_live_flow() -> list[str]:
             "VS-ClientWeb",
             "Ensure-ClientWebDist",
             "Ensure-ControlApiDist",
+            "Assert-ControlApiDist",
             "Test-ControlApiCriticalRoutes",
             "client-gateway",
             "CLIENT_PUBLIC_PORT",
@@ -303,6 +307,7 @@ def test_live_flow() -> list[str]:
         [
             "function Start-ClientWebCloudflareTunnel",
             "function Ensure-ControlApiDist",
+            "function Assert-ControlApiDist",
             "function Test-ControlApiCriticalRoutes",
             "run-cloudflared-live.ps1",
             "trycloudflare",

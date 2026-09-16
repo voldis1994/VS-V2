@@ -146,7 +146,9 @@ if (Test-Path -LiteralPath $envFile) { Ensure-AdminToken -EnvFile $envFile }
 Write-Step 'npm install (workspaces)'
 if ($DryRun) { Write-Host '[dry-run] npm install' }
 else {
-    & npm install
+    $nodeExe = Get-SystemNodeExe
+    $npmCli = Get-SystemNpmCliJs
+    & $nodeExe $npmCli install
     if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
     Write-Ok 'npm install complete'
 }
@@ -154,8 +156,8 @@ else {
 Write-Step 'Build control-api (TypeScript)'
 if ($DryRun) { Write-Host '[dry-run] npm run build --workspace=@vs-v2/control-api' }
 else {
-    & npm run build --workspace=@vs-v2/control-api
-    if ($LASTEXITCODE -ne 0) { throw 'control-api build failed' }
+    $distJs = Ensure-ControlApiDist -Root $Root -Force
+    Assert-ControlApiDist -DistJs $distJs
     Write-Ok 'control-api built'
 }
 

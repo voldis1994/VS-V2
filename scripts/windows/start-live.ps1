@@ -264,6 +264,7 @@ if (-not $DryRun -and (Test-Path -LiteralPath $migSrc)) {
 
 Write-Ok "control-api via node.exe (not npm): $nodeExe"
 Write-Host "  entry: $distJs"
+Assert-ControlApiDist -DistJs $distJs
 if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$dotenvPath" }
 
 $apiEnvLines = @(
@@ -390,7 +391,7 @@ if (-not $DryRun) {
     Write-Host '  Watch the VS-ControlAPI window or logs\control-api.live.log'
     if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label 'Control API /health')) {
         Write-LogTail -Path $apiLog -Lines 60
-        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail. Fix .env.live DB_* then re-run LIVE.bat or Restart-ControlAPI.bat."
+        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail. If MODULE_NOT_FOUND dist\\index.js: run Install.bat then LIVE.bat (or Restart-ControlAPI.bat)."
     }
     Write-Ok 'Control API healthy'
     $missingRoutes = @(Test-ControlApiCriticalRoutes -ApiBase $apiBase)
