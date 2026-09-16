@@ -36,16 +36,27 @@ echo WARNING: This arms LIVE trading against Capital.com.
 echo          Real money open/close orders become allowed when the stack is healthy.
 echo          Client Web serves on :5174 (put HTTPS tunnel in front for remote clients).
 echo.
+echo Type: LIVE   (live / Live also OK — no extra spaces)
+echo.
 set "TYPED="
 set /p "TYPED=Type LIVE to confirm real Capital broker orders: "
-if /I not "!TYPED!"=="LIVE" (
+
+REM Trim spaces. "Live " / " live" must still match.
+for /f "tokens=* delims= " %%A in ("!TYPED!") do set "TYPED=%%A"
+
+REM Case-insensitive exact match via findstr (more reliable than if /I on some consoles).
+echo(!TYPED!| findstr /I /X /C:"LIVE" >nul
+if errorlevel 1 (
   color 0C
-  echo [FAIL] Confirmation failed - refused to start LIVE. (You typed: !TYPED!)
+  echo [FAIL] Confirmation failed - refused to start LIVE.
+  echo        You typed: [!TYPED!]
+  echo        Need exactly: LIVE
   echo        Safe PAPER path: V2.bat
   pause
   exit /b 2
 )
 
+echo [OK] LIVE confirmed - starting stack...
 set "OPERATING_MODE=LIVE"
 set "LIVE_TRADING_ENABLED=true"
 
@@ -63,6 +74,7 @@ if not "%RC%"=="0" (
   color 0C
   echo.
   echo [FAIL] LIVE.bat failed with exit code %RC%
+  echo        Check the error above / logs\*.live.log
   pause
   exit /b %RC%
 )
@@ -71,6 +83,7 @@ echo.
 echo LIVE stack running. Keep the 4 service CMD windows open.
 echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard / VS-ClientWeb
 echo   Client Web: http://127.0.0.1:5174/
+echo   Control Panel: http://127.0.0.1:5173/control
 echo   Control Panel mode switch still requires typing LIVE for re-arm.
 pause
 exit /b 0

@@ -242,6 +242,7 @@ def test_live_flow() -> list[str]:
             "4 CMD windows",
             "Client Web",
             "5174",
+            "findstr",
         ],
         "LIVE.bat",
     )
