@@ -758,6 +758,25 @@ export function feedsFromSenders(senders: DataSender[]) {
   });
 }
 
+/** Probe public + Capital senders so FEED page leaves IDLE. Defaults: catalog epics or EURUSD/XAUUSD/BTCUSD. */
+export async function probeFeedHealth(epicsInput?: string[]): Promise<ReturnType<typeof feedsFromSenders>> {
+  let epics = [...new Set((epicsInput || []).map((e) => e.trim()).filter(Boolean))];
+  if (epics.length === 0) {
+    try {
+      const sug = await suggestOrbitEpics(4);
+      epics = sug.map((s) => s.epic);
+    } catch {
+      epics = [];
+    }
+  }
+  if (epics.length === 0) {
+    epics = ['EURUSD', 'XAUUSD', 'BTCUSD'];
+  }
+  await runOrbitScan(epics.slice(0, 4));
+  const senders = await listDataSenders();
+  return feedsFromSenders(senders);
+}
+
 export type MultiFeedLeg = {
   sender_id: string;
   name: string;

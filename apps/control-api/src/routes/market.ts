@@ -96,7 +96,20 @@ export async function registerMarketRoutes(
     };
   });
 
-  app.get('/api/feeds', async () => listFeedHealthRows());
+  app.get('/api/feeds', async (request) => {
+    const q = request.query as { probe?: string };
+    const probe = q.probe === '1' || q.probe === 'true';
+    if (probe) {
+      const { probeFeedHealth } = await import('../services/robotReader.js');
+      return probeFeedHealth();
+    }
+    return listFeedHealthRows();
+  });
+
+  app.post('/api/feeds/probe', async () => {
+    const { probeFeedHealth } = await import('../services/robotReader.js');
+    return probeFeedHealth();
+  });
 
   setInterval(() => {
     telemetry.broadcast({

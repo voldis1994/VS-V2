@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../hooks/useApi';
+import { apiFetch, useApi } from '../hooks/useApi';
 
 type ClientRow = {
   id: number;
@@ -387,6 +387,8 @@ export function ControlErrorsPage() {
 export function ControlFeedPage() {
   const feedsApi = useApi<FeedRow[] | { items?: FeedRow[] }>('/api/feeds', 7000);
   const clientsApi = useApi<ClientRow[]>('/api/clients', 10000);
+  const [probeBusy, setProbeBusy] = useState(false);
+  const [probeMsg, setProbeMsg] = useState<string | null>(null);
 
   const feeds = Array.isArray(feedsApi.data) ? feedsApi.data : feedsApi.data?.items || [];
   const openMarkets = useMemo(() => {
@@ -397,6 +399,28 @@ export function ControlFeedPage() {
     }
     return [...set];
   }, [clientsApi.data]);
+
+  const probeFeeds = useCallback(async () => {
+    if (probeBusy) return;
+    setProbeBusy(true);
+    setProbeMsg(null);
+    try {
+      await apiFetch('/api/feeds/probe', { method: 'POST', body: JSON.stringify({}) });
+      feedsApi.refresh();
+      clientsApi.refresh();
+      setProbeMsg('Feeds probed — status should leave IDLE if network OK');
+    } catch (e) {
+      setProbeMsg(e instanceof Error ? e.message : 'Probe failed');
+    } finally {
+      setProbeBusy(false);
+    }
+  }, [probeBusy, feedsApi, clientsApi]);
+
+  useEffect(() => {
+    // Auto-probe once on open so FEED is not stuck IDLE after LIVE.bat
+    void probeFeeds();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot on mount
+  }, []);
 
   const drivers = [
     { driver: 'DXY ↑', affects: 'EURUSD / EUR*', bias: 'EUR soft', strength: openMarkets.some((m) => m.includes('EUR')) ? 'HIGH' : 'WATCH' },
@@ -411,16 +435,19 @@ export function ControlFeedPage() {
           <h2 style={{ margin: 0 }}>FEED · CROSS-MARKET IMPACT</h2>
           <button
             type="button"
-            className="cp-btn ghost"
-            onClick={() => {
-              feedsApi.refresh();
-              clientsApi.refresh();
-            }}
+            className="cp-btn primary"
+            disabled={probeBusy}
+            onClick={() => void probeFeeds()}
           >
-            REFRESH
+            {probeBusy ? 'PROBING…' : 'REFRESH + PROBE'}
           </button>
         </div>
-        <p className="cp-muted">Helper only — LIVE.bat arms Capital open/close; PAPER forbids orders.</p>
+        <p className="cp-muted">
+          Feedi paliek IDLE, kamēr nav pingoti. REFRESH + PROBE izsauc publiskos + Capital avotus.
+        </p>
+        {probeMsg && (
+          <p className={/fail|error/i.test(probeMsg) ? 'cp-error' : 'cp-ok'}>{probeMsg}</p>
+        )}
       </section>
 
       <div className="cp-grid-2">
