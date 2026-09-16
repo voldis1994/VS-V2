@@ -214,6 +214,7 @@ if (-not $DryRun -and (Test-Path -LiteralPath $migSrc)) {
 
 Write-Ok "control-api via node.exe (not npm): $nodeExe"
 Write-Host "  entry: $distJs"
+Assert-ControlApiDist -DistJs $distJs
 if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$envPaper" }
 
 # Pure CMD launcher for Control API - NEVER PowerShell/$args/npm (npm-cli.js MODULE_NOT_FOUND on Windows).

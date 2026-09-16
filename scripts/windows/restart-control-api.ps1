@@ -70,6 +70,7 @@ $nodeExe = Get-SystemNodeExe
 if ($nodeExe -match '(?i)npm') {
     throw "Refusing npm as node.exe: $nodeExe"
 }
+Assert-ControlApiDist -DistJs $distJs
 
 $migDist = Join-Path $Root 'apps\control-api\dist\db\migrations'
 $migSrc = Join-Path $Root 'apps\control-api\src\db\migrations'

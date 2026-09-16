@@ -1096,7 +1096,7 @@ function Start-ClientWebCloudflareTunnel {
 }
 
 # Rebuild apps/control-api/dist when missing or older than src (git pull leaves stale dist).
-# Stale dist is why FEED probe / NEWS desk return Fastify "Not Found" while /health is OK.
+# Stale/missing dist is why FEED/NEWS 404 or LIVE dies with MODULE_NOT_FOUND on dist\index.js.
 function Ensure-ControlApiDist {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -1106,7 +1106,17 @@ function Ensure-ControlApiDist {
     $apiPkg = Join-Path $Root 'apps\control-api'
     $distJs = Join-Path $apiPkg 'dist\index.js'
     $srcDir = Join-Path $apiPkg 'src'
-    $needBuild = $Force -or -not (Test-Path -LiteralPath $distJs)
+    $srcIndex = Join-Path $srcDir 'index.ts'
+
+    function Test-DistEntryOk {
+        if (-not (Test-Path -LiteralPath $distJs)) { return $false }
+        try {
+            $len = (Get-Item -LiteralPath $distJs).Length
+            return ($len -gt 50)
+        } catch { return $false }
+    }
+
+    $needBuild = $Force -or -not (Test-DistEntryOk)
     if (-not $needBuild -and (Test-Path -LiteralPath $srcDir)) {
         $distTime = (Get-Item -LiteralPath $distJs).LastWriteTimeUtc
         $newestSrc = Get-ChildItem -LiteralPath $srcDir -Recurse -File -ErrorAction SilentlyContinue |
@@ -1119,7 +1129,7 @@ function Ensure-ControlApiDist {
         }
     }
     # Critical routes added after early Install.bat builds - force rebuild if missing from dist JS.
-    if (-not $needBuild -and (Test-Path -LiteralPath $distJs)) {
+    if (-not $needBuild -and (Test-DistEntryOk)) {
         $marketJs = Join-Path $apiPkg 'dist\routes\market.js'
         $newsJs = Join-Path $apiPkg 'dist\routes\news.js'
         $marketTxt = ''
@@ -1139,38 +1149,104 @@ function Ensure-ControlApiDist {
         Write-Ok ("control-api dist ready: {0}" -f $distJs)
         return $distJs
     }
-    Write-Step 'Building control-api (tsc -> dist) so FEED/NEWS routes exist'
+
+    if (-not (Test-Path -LiteralPath $srcIndex)) {
+        throw "control-api source missing at $srcIndex - wrong folder? Expected VS-V2 repo root."
+    }
+
+    Write-Step 'Building control-api (tsc -> dist) - required before LIVE/V2'
     if ($DryRun) {
-        Write-Host '[dry-run] node tsc -p apps/control-api/tsconfig.json'
+        Write-Host '[dry-run] npm run build --workspace=@vs-v2/control-api'
         return $distJs
     }
+
     $nodeExe = Get-SystemNodeExe
-    $tscJs = Join-Path $Root 'node_modules\typescript\bin\tsc'
-    if (-not (Test-Path -LiteralPath $tscJs)) {
-        throw "typescript missing at $tscJs - run Install.bat first"
-    }
-    Push-Location $apiPkg
+    $buildOk = $false
+    $lastErr = ''
+
+    # 1) Preferred: same as Install.bat (workspace build + copy-migrations)
     try {
-        & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
-        if ($LASTEXITCODE -ne 0) { throw "tsc failed for control-api (exit $LASTEXITCODE)" }
-        $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
-        if (Test-Path -LiteralPath $copyJs) {
-            & $nodeExe $copyJs
-            if ($LASTEXITCODE -ne 0) { throw 'copy-migrations.mjs failed' }
-        } else {
-            $srcMig = Join-Path $apiPkg 'src\db\migrations'
-            $dstMig = Join-Path $apiPkg 'dist\db\migrations'
-            New-Item -ItemType Directory -Force -Path $dstMig | Out-Null
-            Copy-Item -Path (Join-Path $srcMig '*') -Destination $dstMig -Force
+        $npmCli = Get-SystemNpmCliJs
+        Write-Host "  build via: $nodeExe $npmCli run build --workspace=@vs-v2/control-api"
+        Push-Location $Root
+        try {
+            & $nodeExe $npmCli run build --workspace=@vs-v2/control-api
+            $ec = $LASTEXITCODE
+            if ($null -eq $ec) { $ec = 1 }
+            if ($ec -ne 0) { throw "npm workspace build exit $ec" }
+            $buildOk = $true
+        } finally {
+            Pop-Location
         }
-    } finally {
-        Pop-Location
+    } catch {
+        $lastErr = $_.Exception.Message
+        Write-Warn ("npm workspace control-api build failed: {0}" -f $lastErr)
     }
-    if (-not (Test-Path -LiteralPath $distJs)) {
-        throw 'apps\control-api\dist\index.js missing after tsc. Run Install.bat then LIVE.bat again.'
+
+    # 2) Fallback: direct tsc from hoisted or package-local typescript
+    if (-not $buildOk -or -not (Test-DistEntryOk)) {
+        $tscCandidates = @(
+            (Join-Path $Root 'node_modules\typescript\bin\tsc'),
+            (Join-Path $apiPkg 'node_modules\typescript\bin\tsc')
+        )
+        $tscJs = $tscCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $tscJs) {
+            throw @"
+control-api dist missing and TypeScript not found.
+Run Install.bat once (npm install + build), then LIVE.bat.
+Looked for: $($tscCandidates -join '; ')
+Last build error: $lastErr
+"@
+        }
+        Write-Warn "Falling back to direct tsc: $tscJs"
+        Push-Location $apiPkg
+        try {
+            & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
+            $ec = $LASTEXITCODE
+            if ($null -eq $ec) { $ec = 1 }
+            if ($ec -ne 0) { throw "tsc failed for control-api (exit $ec)" }
+            $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
+            if (Test-Path -LiteralPath $copyJs) {
+                & $nodeExe $copyJs
+                $ec2 = $LASTEXITCODE
+                if ($null -eq $ec2) { $ec2 = 1 }
+                if ($ec2 -ne 0) { throw 'copy-migrations.mjs failed' }
+            } else {
+                $srcMig = Join-Path $apiPkg 'src\db\migrations'
+                $dstMig = Join-Path $apiPkg 'dist\db\migrations'
+                New-Item -ItemType Directory -Force -Path $dstMig | Out-Null
+                Copy-Item -Path (Join-Path $srcMig '*') -Destination $dstMig -Force
+            }
+            $buildOk = $true
+        } finally {
+            Pop-Location
+        }
     }
-    Write-Ok ("control-api built: {0}" -f $distJs)
+
+    if (-not (Test-DistEntryOk)) {
+        throw @"
+apps\control-api\dist\index.js missing after build (MODULE_NOT_FOUND if LIVE continues).
+Run Install.bat, wait for 'control-api built', then LIVE.bat.
+Path: $distJs
+Last error: $lastErr
+"@
+    }
+    Write-Ok ("control-api built: {0} ({1} bytes)" -f $distJs, (Get-Item -LiteralPath $distJs).Length)
     return $distJs
+}
+
+function Assert-ControlApiDist {
+    param(
+        [Parameter(Mandatory = $true)][string]$DistJs
+    )
+    if (-not (Test-Path -LiteralPath $DistJs)) {
+        throw "Refusing to start Control API - missing $DistJs. Run Install.bat then LIVE.bat."
+    }
+    $len = 0
+    try { $len = [int64](Get-Item -LiteralPath $DistJs).Length } catch { $len = 0 }
+    if ($len -lt 50) {
+        throw "Refusing to start Control API - $DistJs is empty/corrupt ($len bytes). Run Install.bat."
+    }
 }
 
 function Test-ControlApiCriticalRoutes {
