@@ -5,7 +5,13 @@
 import { pool } from '../db/pool.js';
 import { decrypt } from '../security/encryption.js';
 import { logAudit } from './audit.js';
-import { acquireCapitalSession, fetchAllCapitalMarkets, type CapitalMarket } from './capitalCom.js';
+import {
+  acquireCapitalSession,
+  fetchAllCapitalMarkets,
+  invalidateCapitalSession,
+  type CapitalMarket,
+  type CapitalMarketsFetchDiagnostics,
+} from './capitalCom.js';
 
 async function tradingHelpers() {
   const mod = await import('../routes/trading.js');
@@ -33,6 +39,39 @@ async function loadCredentialMap(brokerConnectionId: number): Promise<Record<str
   return out;
 }
 
+function formatDiagnostics(diag: CapitalMarketsFetchDiagnostics): string {
+  if (!diag.sources.length) return 'no market API attempts recorded';
+  return diag.sources
+    .map((s) => {
+      const st = s.status != null ? ` HTTP ${s.status}` : '';
+      const d = s.detail ? ` (${s.detail})` : '';
+      return `${s.source}: ${s.ok ? 'ok' : 'fail'}${st} +${s.added}${d}`;
+    })
+    .join('; ');
+}
+
+async function persistMarketsStatus(
+  connectionId: number,
+  opts: { count: number; error: string | null }
+): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE broker_connections SET
+         last_markets_count = $2,
+         last_markets_error = $3,
+         last_markets_pulled_at = NOW(),
+         updated_at = NOW()
+       WHERE id = $1`,
+      [connectionId, opts.count, opts.error]
+    );
+  } catch (err) {
+    console.warn(
+      '[capitalMarketsSync] persistMarketsStatus failed (migration 012 missing?):',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
 export type PullMarketsResult =
   | {
       ok: true;
@@ -41,8 +80,9 @@ export type PullMarketsResult =
       account_id: number;
       mode: 'quick' | 'full';
       sample: Array<{ epic: string; name: string }>;
+      diagnostics?: string;
     }
-  | { ok: false; error: string; statusCode: number };
+  | { ok: false; error: string; statusCode: number; diagnostics?: string };
 
 async function upsertMarkets(connectionId: number, markets: CapitalMarket[]): Promise<void> {
   for (const m of markets) {
@@ -97,7 +137,8 @@ async function orphanCleanup(
 
 /**
  * Pull + store Capital markets for a broker connection / trading account.
- * mode=quick: search sweep (~seconds). mode=full: navigation tree + search (1–3 min).
+ * mode=quick: all-markets + seed epics + search (~seconds).
+ * mode=full: + navigation tree (1–3 min).
  */
 export async function pullAndStoreCapitalMarkets(opts: {
   connectionId: number;
@@ -137,17 +178,25 @@ export async function pullAndStoreCapitalMarkets(opts: {
       `${conn.client_name} / capital_com (${conn.environment})`
     ));
 
-  const creds = await loadCredentialMap(conn.connection_id);
+  let creds: Record<string, string>;
+  try {
+    creds = await loadCredentialMap(conn.connection_id);
+  } catch (err) {
+    const msg = `Credential decrypt failed: ${err instanceof Error ? err.message : String(err)}. Check MASTER_ENCRYPTION_KEY is stable across restarts.`;
+    await persistMarketsStatus(conn.connection_id, { count: 0, error: msg });
+    return { ok: false, error: msg, statusCode: 500 };
+  }
   const apiKey = creds.api_key || '';
   const password = creds.password || '';
   const identifier = (conn.identifier || '').trim();
   if (!apiKey || !password || !identifier) {
-    return {
-      ok: false,
-      error: 'Missing Capital.com credentials (api_key / password / identifier)',
-      statusCode: 400,
-    };
+    const msg = 'Missing Capital.com credentials (api_key / password / identifier)';
+    await persistMarketsStatus(conn.connection_id, { count: 0, error: msg });
+    return { ok: false, error: msg, statusCode: 400 };
   }
+
+  // Force a fresh session for explicit pulls (avoid stale CST / empty catalog).
+  invalidateCapitalSession(conn.connection_id);
 
   const opened = await acquireCapitalSession({
     environment: conn.environment,
@@ -157,17 +206,18 @@ export async function pullAndStoreCapitalMarkets(opts: {
     connectionId: conn.connection_id,
   });
   if (!opened.ok) {
+    await persistMarketsStatus(conn.connection_id, { count: 0, error: opened.result.detail });
     return { ok: false, error: opened.result.detail, statusCode: 400 };
   }
 
-  const markets = await fetchAllCapitalMarkets(opened.session, { mode });
+  const { markets, diagnostics } = await fetchAllCapitalMarkets(opened.session, { mode });
+  const diagText = formatDiagnostics(diagnostics);
   if (markets.length === 0) {
-    return {
-      ok: false,
-      error:
-        'Capital.com returned 0 markets. Check Live/Demo environment matches the API key, and key has market-data permission.',
-      statusCode: 502,
-    };
+    const msg =
+      `Capital.com returned 0 markets (${conn.environment}). ${diagText}. ` +
+      'Check Live/Demo matches the API key, and the key has market-data permission.';
+    await persistMarketsStatus(conn.connection_id, { count: 0, error: msg });
+    return { ok: false, error: msg, statusCode: 502, diagnostics: diagText };
   }
 
   await upsertMarkets(conn.connection_id, markets);
@@ -179,13 +229,14 @@ export async function pullAndStoreCapitalMarkets(opts: {
     );
   }
   await seedAccountInstruments(accountId);
+  await persistMarketsStatus(conn.connection_id, { count: markets.length, error: null });
   await logAudit(
     opts.actor || 'admin',
     'capital_markets_pulled',
     'broker_connection',
     String(conn.connection_id),
     null,
-    { count: markets.length, environment: conn.environment, mode }
+    { count: markets.length, environment: conn.environment, mode, diagnostics: diagText }
   );
 
   return {
@@ -195,6 +246,7 @@ export async function pullAndStoreCapitalMarkets(opts: {
     account_id: accountId,
     mode,
     sample: markets.slice(0, 8).map((m) => ({ epic: m.epic, name: m.display_name })),
+    diagnostics: diagText,
   };
 }
 
@@ -221,4 +273,57 @@ export async function countCapitalMarkets(connectionId: number): Promise<number>
     [connectionId]
   );
   return Number(rows[0]?.n || 0);
+}
+
+/** Pull markets for every Capital connection that currently has an empty catalog. */
+export async function pullEmptyCapitalCatalogs(actor = 'admin'): Promise<{
+  attempted: number;
+  succeeded: number;
+  failed: Array<{ connection_id: number; client_id: number; error: string }>;
+  total_markets: number;
+}> {
+  const { rows } = await pool.query(
+    `SELECT bc.id as connection_id, bc.client_id, ba.id as account_id
+     FROM broker_connections bc
+     LEFT JOIN broker_accounts ba ON ba.broker_connection_id = bc.id
+     WHERE bc.broker_name = 'capital_com' AND bc.enabled = true
+       AND NOT EXISTS (
+         SELECT 1 FROM capital_markets cm WHERE cm.broker_connection_id = bc.id
+       )
+     ORDER BY bc.id ASC`
+  );
+  const seen = new Set<number>();
+  let succeeded = 0;
+  let totalMarkets = 0;
+  const failed: Array<{ connection_id: number; client_id: number; error: string }> = [];
+
+  for (const row of rows) {
+    const connectionId = row.connection_id as number;
+    if (seen.has(connectionId)) continue;
+    seen.add(connectionId);
+    const result = await pullAndStoreCapitalMarkets({
+      connectionId,
+      accountId: (row.account_id as number) || undefined,
+      mode: 'quick',
+      actor,
+    });
+    if (result.ok) {
+      succeeded += 1;
+      totalMarkets += result.count;
+      scheduleFullCapitalMarketsPull(result.connection_id, result.account_id);
+    } else {
+      failed.push({
+        connection_id: connectionId,
+        client_id: row.client_id as number,
+        error: result.error,
+      });
+    }
+  }
+
+  return {
+    attempted: seen.size,
+    succeeded,
+    failed,
+    total_markets: totalMarkets,
+  };
 }

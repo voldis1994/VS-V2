@@ -13,6 +13,7 @@ import {
   pullAndStoreCapitalMarkets,
   scheduleFullCapitalMarketsPull,
   countCapitalMarkets,
+  pullEmptyCapitalCatalogs,
 } from '../services/capitalMarketsSync.js';
 
 async function hardDeleteClient(clientId: string): Promise<void> {
@@ -86,7 +87,17 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
                 SELECT bc.id FROM broker_connections bc
                 WHERE bc.client_id = c.id AND bc.broker_name = 'capital_com'
                 ORDER BY bc.id ASC LIMIT 1
-              ) as capital_connection_id
+              ) as capital_connection_id,
+              (
+                SELECT bc.last_markets_error FROM broker_connections bc
+                WHERE bc.client_id = c.id AND bc.broker_name = 'capital_com'
+                ORDER BY bc.id ASC LIMIT 1
+              ) as capital_markets_error,
+              (
+                SELECT bc.environment FROM broker_connections bc
+                WHERE bc.client_id = c.id AND bc.broker_name = 'capital_com'
+                ORDER BY bc.id ASC LIMIT 1
+              ) as capital_environment
        FROM clients c
        ORDER BY c.created_at DESC`
     );
@@ -121,6 +132,8 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         status_reason: panel?.status_reason ?? null,
         capital_market_count: Number(row.capital_market_count || 0),
         capital_connection_id: row.capital_connection_id ?? null,
+        capital_markets_error: row.capital_markets_error ?? null,
+        capital_environment: row.capital_environment ?? null,
       });
     }
     return out;
@@ -418,6 +431,133 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       access_code: code,
       access_enabled: true,
       message: 'Save this access code now — it will not be shown again.',
+    };
+  });
+
+  /** Attach or replace Capital.com credentials on an existing client, then pull markets. */
+  app.post('/api/clients/:id/capital', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body || {}) as {
+      environment?: string;
+      identifier?: string;
+      api_key?: string;
+      password?: string;
+    };
+    const clientRes = await pool.query('SELECT id, name FROM clients WHERE id = $1', [id]);
+    if (!clientRes.rows.length) {
+      return reply.code(404).send({ error: 'Client not found', message: 'Client not found' });
+    }
+    const clientName = String(clientRes.rows[0].name || 'Client');
+    const identifier = String(body.identifier || '').trim();
+    const apiKey = String(body.api_key || '').trim();
+    const apiPassword = String(body.password || '').trim();
+    const environment = String(body.environment || 'live').trim() || 'live';
+    if (!identifier || !apiKey || !apiPassword) {
+      return reply.code(400).send({
+        error: 'Capital.com requires identifier, api_key, and password',
+        message: 'Capital.com requires identifier (email), API key, and API password',
+      });
+    }
+    if (apiKey.includes('@')) {
+      return reply.code(400).send({
+        error: 'API Key looks like an email',
+        message:
+          'API Key looks like an email. Put email in Identifier, and paste the Capital.com API Key in API Key.',
+      });
+    }
+
+    const existing = await pool.query(
+      `SELECT id FROM broker_connections
+       WHERE client_id = $1 AND broker_name = 'capital_com'
+       ORDER BY id ASC LIMIT 1`,
+      [id]
+    );
+
+    let connectionId: number;
+    if (existing.rows.length) {
+      connectionId = existing.rows[0].id as number;
+      await pool.query(
+        `UPDATE broker_connections
+         SET environment = $2, identifier = $3, enabled = true, updated_at = NOW()
+         WHERE id = $1`,
+        [connectionId, environment, identifier]
+      );
+      await pool.query('DELETE FROM api_credential_metadata WHERE broker_connection_id = $1', [
+        connectionId,
+      ]);
+    } else {
+      const conn = await pool.query(
+        `INSERT INTO broker_connections (client_id, broker_name, environment, identifier)
+         VALUES ($1, 'capital_com', $2, $3) RETURNING id`,
+        [id, environment, identifier]
+      );
+      connectionId = conn.rows[0].id as number;
+    }
+
+    const encKey = encrypt(apiKey);
+    const encPw = encrypt(apiPassword);
+    await pool.query(
+      `INSERT INTO api_credential_metadata
+       (broker_connection_id, credential_type, ciphertext, iv, tag, masked_value)
+       VALUES ($1, 'api_key', $2, $3, $4, $5)`,
+      [connectionId, encKey.ciphertext, encKey.iv, encKey.tag, maskSecret(apiKey)]
+    );
+    await pool.query(
+      `INSERT INTO api_credential_metadata
+       (broker_connection_id, credential_type, ciphertext, iv, tag, masked_value)
+       VALUES ($1, 'password', $2, $3, $4, $5)`,
+      [connectionId, encPw.ciphertext, encPw.iv, encPw.tag, maskSecret(apiPassword)]
+    );
+
+    const accountId = await ensureBrokerAccount(
+      connectionId,
+      `${clientName} / capital_com (${environment})`
+    );
+
+    const pull = await pullAndStoreCapitalMarkets({
+      connectionId,
+      accountId,
+      mode: 'quick',
+      actor: 'admin',
+    });
+    if (pull.ok) {
+      scheduleFullCapitalMarketsPull(connectionId, accountId);
+    } else {
+      await seedAccountInstruments(accountId);
+    }
+
+    await logAudit('admin', 'client_capital_attached', 'client', String(id), null, {
+      broker_connection_id: connectionId,
+      account_id: accountId,
+      environment,
+      capital_market_count: pull.ok ? pull.count : 0,
+      markets_error: pull.ok ? null : pull.error,
+    });
+
+    return {
+      success: pull.ok,
+      client_id: Number(id),
+      broker_connection_id: connectionId,
+      account_id: accountId,
+      capital_market_count: pull.ok ? pull.count : await countCapitalMarkets(connectionId),
+      capital_markets_error: pull.ok ? null : pull.error,
+      sample: pull.ok ? pull.sample : [],
+      message: pull.ok
+        ? `Capital attached. Pulled ${pull.count} markets (full sync continues in background).`
+        : `Capital credentials saved, but markets pull failed: ${pull.error}`,
+    };
+  });
+
+  /** Pull Capital markets for every enabled Capital connection with an empty catalog. */
+  app.post('/api/clients/pull-empty-markets', async () => {
+    const result = await pullEmptyCapitalCatalogs('admin');
+    return {
+      success: result.failed.length === 0,
+      ...result,
+      message:
+        result.attempted === 0
+          ? 'No empty Capital catalogs found.'
+          : `Pulled ${result.succeeded}/${result.attempted} empty catalogs (${result.total_markets} markets).`,
     };
   });
 
