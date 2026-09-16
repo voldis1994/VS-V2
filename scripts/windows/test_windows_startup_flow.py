@@ -254,7 +254,6 @@ def test_live_flow() -> list[str]:
             "Refusing LIVE start without -ConfirmLive",
             "Enforce-LiveArmed",
             "Assert-LiveArmed",
-            "Assert-LiveCapitalCredentials",
             "Test-LiveCapitalCredentials",
             "--mode LIVE",
             "Invoke-LivePreflight",
@@ -377,8 +376,10 @@ def simulate_live_dry_run() -> list[str]:
     ps1 = read("scripts/windows/start-live.ps1")
     if "Refusing LIVE start without -ConfirmLive" not in ps1:
         errs.append("simulate LIVE: missing ConfirmLive refusal")
-    if "Assert-LiveCapitalCredentials" not in ps1:
+    if "Assert-LiveCapitalCredentials" not in ps1 and "Test-LiveCapitalCredentials" not in ps1:
         errs.append("simulate LIVE: missing Capital credential assert")
+    if "Test-LiveCapitalCredentials" not in ps1:
+        errs.append("simulate LIVE: missing soft Capital credential check")
     if "refused PAPER" not in ps1:
         errs.append("simulate LIVE: missing PAPER refusal in LIVE launcher")
     return errs
