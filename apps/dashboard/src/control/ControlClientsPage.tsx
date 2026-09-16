@@ -13,6 +13,9 @@ type ClientRow = {
   panel_lot_size?: number | null;
   panel_robot_requested?: string | null;
   robot_status?: string | null;
+  capital_market_count?: number | null;
+  capital_connection_id?: number | null;
+  account_id?: number | null;
   live_trade?: {
     market: string;
     display_name: string;
@@ -29,6 +32,8 @@ type ProvisionResult = ClientRow & {
   access_code?: string;
   broker_connection_id?: number;
   account_id?: number;
+  capital_market_count?: number;
+  capital_markets_error?: string | null;
   message?: string;
 };
 
@@ -210,6 +215,35 @@ export function ControlClientsPage() {
     }
   };
 
+  const pullMarkets = async (client: ClientRow) => {
+    setMsg(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch<{
+        count?: number;
+        capital_market_count?: number;
+        message?: string;
+        sample?: Array<{ epic: string; name: string }>;
+      }>(`/api/clients/${client.id}/pull-markets`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'quick' }),
+      });
+      const n = res.capital_market_count ?? res.count ?? 0;
+      const sample = (res.sample || [])
+        .slice(0, 3)
+        .map((s) => s.epic)
+        .join(', ');
+      setMsg(
+        `Pulled ${n} Capital markets for ${client.name}${sample ? ` (e.g. ${sample})` : ''}. Full catalog sync continues in background.`
+      );
+      refresh();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Pull markets failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div>
       <section className="cp-panel cp-issued" style={{ marginBottom: '1rem' }}>
@@ -278,8 +312,8 @@ export function ControlClientsPage() {
           <div>
             <h2>ADD CLIENT</h2>
             <p className="cp-muted">
-              Vārds + web parole + Capital API šeit (nevis vecajā /brokers desk). Brokeris
-              saglabājas šifrēts. Parole rādās vienreiz.
+              Vards + web parole + Capital API. Pec saglabasanas sistema automaticki velk Capital
+              tirgus (quick). Ja Markets = 0 — spied PULL MARKETS.
             </p>
           </div>
         </div>
@@ -403,6 +437,7 @@ export function ControlClientsPage() {
                 <th>Client</th>
                 <th>Access</th>
                 <th>Risk</th>
+                <th>Markets</th>
                 <th>Robot</th>
                 <th>Market / Lot</th>
                 <th>Actions</th>
@@ -440,6 +475,18 @@ export function ControlClientsPage() {
                       </button>
                     </td>
                     <td>
+                      <div
+                        className={
+                          Number(c.capital_market_count || 0) > 0 ? 'cp-ok' : 'cp-error'
+                        }
+                      >
+                        {Number(c.capital_market_count || 0)} markets
+                      </div>
+                      {Number(c.capital_market_count || 0) === 0 && (
+                        <div className="cp-muted">Pull needed</div>
+                      )}
+                    </td>
+                    <td>
                       <span className={`cp-pill ${running ? 'on' : 'off'}`}>
                         {String(c.robot_status || c.panel_robot_requested || 'STOPPED').toUpperCase()}
                       </span>
@@ -461,6 +508,15 @@ export function ControlClientsPage() {
                     </td>
                     <td>
                       <div className="cp-row">
+                        <button
+                          type="button"
+                          className="cp-btn primary"
+                          disabled={busy}
+                          onClick={() => void pullMarkets(c)}
+                          title="Fetch Capital.com market catalog via API"
+                        >
+                          PULL MARKETS
+                        </button>
                         <button type="button" className="cp-btn" onClick={() => void issuePassword(c)}>
                           SET PASSWORD
                         </button>
@@ -474,7 +530,7 @@ export function ControlClientsPage() {
               })}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="cp-muted">
+                  <td colSpan={7} className="cp-muted">
                     No clients yet.
                   </td>
                 </tr>

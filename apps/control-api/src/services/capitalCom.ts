@@ -1095,13 +1095,16 @@ function normalizeMarket(raw: Record<string, any>, pathNames: string[]): Capital
 /**
  * Walk Capital.com market navigation recursively and collect every market epic/name.
  * Also supplements with /markets?searchTerm= sweeps so sparse nodes are not missed.
+ * mode=quick: search sweep only (seconds) for post-provision seed.
+ * mode=full: navigation tree + search (1–3 min).
  */
 export async function fetchAllCapitalMarkets(
   session: CapitalSession,
-  opts?: { onProgress?: (count: number, note: string) => void }
+  opts?: { onProgress?: (count: number, note: string) => void; mode?: 'quick' | 'full' }
 ): Promise<CapitalMarket[]> {
   const byEpic = new Map<string, CapitalMarket>();
   const visitedNodes = new Set<string>();
+  const mode = opts?.mode || 'full';
 
   const addMarkets = (arr: any[] | undefined, pathNames: string[]) => {
     if (!Array.isArray(arr)) return;
@@ -1125,7 +1128,7 @@ export async function fetchAllCapitalMarkets(
       visitedNodes.add(nodeId);
     }
 
-    await sleep(120); // respect Capital.com rate limits
+    await sleep(120);
     const res = await session.get(path);
     if (!res.ok) return;
 
@@ -1140,16 +1143,25 @@ export async function fetchAllCapitalMarkets(
     }
   };
 
-  await walk(null, [], 0);
+  if (mode === 'full') {
+    await walk(null, [], 0);
+  }
 
-  // Supplement: search sweep catches instruments not linked in navigation.
-  const terms = [
-    ...'abcdefghijklmnopqrstuvwxyz'.split(''),
-    ...'0123456789'.split(''),
-    'EUR', 'USD', 'GBP', 'JPY', 'XAU', 'BTC', 'ETH', 'NAS', 'US5', 'OIL', 'GOLD',
-  ];
+  const terms =
+    mode === 'quick'
+      ? [
+          'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD',
+          'XAU', 'XAG', 'GOLD', 'SILVER', 'BTC', 'ETH',
+          'NAS', 'US5', 'US1', 'SPX', 'DAX', 'UK1',
+          'OIL', 'WTI', 'BRENT', 'AAPL', 'TSLA', 'NVDA',
+        ]
+      : [
+          ...'abcdefghijklmnopqrstuvwxyz'.split(''),
+          ...'0123456789'.split(''),
+          'EUR', 'USD', 'GBP', 'JPY', 'XAU', 'BTC', 'ETH', 'NAS', 'US5', 'OIL', 'GOLD',
+        ];
   for (const term of terms) {
-    await sleep(120);
+    await sleep(mode === 'quick' ? 80 : 120);
     const res = await session.get(`/api/v1/markets?searchTerm=${encodeURIComponent(term)}`);
     if (!res.ok) continue;
     const markets = Array.isArray(res.json.markets) ? res.json.markets : [];

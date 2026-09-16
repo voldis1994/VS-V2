@@ -4,6 +4,10 @@ import { encrypt, decrypt, maskSecret } from '../security/encryption.js';
 import { logAudit } from '../services/audit.js';
 import { acquireCapitalSession, listCapitalAccounts, testCapitalComSession } from '../services/capitalCom.js';
 import { ensureBrokerAccount, seedAccountInstruments } from './trading.js';
+import {
+  pullAndStoreCapitalMarkets,
+  scheduleFullCapitalMarketsPull,
+} from '../services/capitalMarketsSync.js';
 
 async function ensureClientId(preferredId: number | undefined, fallbackName: string): Promise<number> {
   if (preferredId && Number.isFinite(preferredId) && preferredId > 0) {
@@ -142,12 +146,33 @@ export async function registerBrokerRoutes(app: FastifyInstance): Promise<void> 
         conn.id as number,
         `${clientName} / ${body.broker_name} (${body.environment})`
       );
-      await seedAccountInstruments(accountId);
+
+      let marketsCount = 0;
+      let marketsError: string | null = null;
+      if (body.broker_name === 'capital_com' && body.api_key && body.password) {
+        const pull = await pullAndStoreCapitalMarkets({
+          connectionId: conn.id as number,
+          accountId,
+          mode: 'quick',
+          actor: 'admin',
+        });
+        if (pull.ok) {
+          marketsCount = pull.count;
+          scheduleFullCapitalMarketsPull(conn.id as number, accountId);
+        } else {
+          marketsError = pull.error;
+          await seedAccountInstruments(accountId);
+        }
+      } else {
+        await seedAccountInstruments(accountId);
+      }
 
       return {
         ...conn,
         client_name: clientName,
         account_id: accountId,
+        capital_market_count: marketsCount,
+        capital_markets_error: marketsError,
         credentials: [],
       };
     } catch (err) {
@@ -289,12 +314,37 @@ export async function registerBrokerRoutes(app: FastifyInstance): Promise<void> 
         /* test already OK — sync is best-effort */
       }
 
+      let marketsCount = 0;
+      let marketsError: string | null = null;
+      try {
+        const accountId = await ensureBrokerAccount(
+          conn.id,
+          `${conn.identifier || 'Capital'} / capital_com (${conn.environment})`
+        );
+        const pull = await pullAndStoreCapitalMarkets({
+          connectionId: conn.id,
+          accountId,
+          mode: 'quick',
+          actor: 'admin',
+        });
+        if (pull.ok) {
+          marketsCount = pull.count;
+          scheduleFullCapitalMarketsPull(conn.id, accountId);
+        } else {
+          marketsError = pull.error;
+        }
+      } catch (e) {
+        marketsError = e instanceof Error ? e.message : 'markets pull failed';
+      }
+
       return {
         success: true,
         message: result.detail,
         accountType: result.accountType,
         capital_accounts: syncedAccounts,
         multi_account: syncedAccounts.length > 1,
+        capital_market_count: marketsCount,
+        capital_markets_error: marketsError,
       };
     } catch (err) {
       request.log.error(err);

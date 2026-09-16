@@ -9,6 +9,11 @@ import {
   stopClientRobot,
 } from '../services/clientPanel.js';
 import { ensureBrokerAccount, seedAccountInstruments } from './trading.js';
+import {
+  pullAndStoreCapitalMarkets,
+  scheduleFullCapitalMarketsPull,
+  countCapitalMarkets,
+} from '../services/capitalMarketsSync.js';
 
 async function hardDeleteClient(clientId: string): Promise<void> {
   const db = await pool.connect();
@@ -65,7 +70,23 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
               c.preferred_broker_account_id,
               c.panel_epic, c.panel_display_name, c.panel_lot_size,
               c.panel_robot_requested, c.last_seen_at,
-              c.created_at, c.updated_at
+              c.created_at, c.updated_at,
+              (
+                SELECT COUNT(*)::int FROM capital_markets cm
+                JOIN broker_connections bc ON bc.id = cm.broker_connection_id
+                WHERE bc.client_id = c.id
+              ) as capital_market_count,
+              (
+                SELECT ba.id FROM broker_accounts ba
+                JOIN broker_connections bc ON bc.id = ba.broker_connection_id
+                WHERE bc.client_id = c.id AND bc.broker_name = 'capital_com'
+                ORDER BY ba.id ASC LIMIT 1
+              ) as capital_account_id,
+              (
+                SELECT bc.id FROM broker_connections bc
+                WHERE bc.client_id = c.id AND bc.broker_name = 'capital_com'
+                ORDER BY bc.id ASC LIMIT 1
+              ) as capital_connection_id
        FROM clients c
        ORDER BY c.created_at DESC`
     );
@@ -95,9 +116,11 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         updated_at: row.updated_at,
         robot_status: panel?.robot_status ?? 'STOPPED',
         live_trade: panel?.live_trade ?? null,
-        account_id: panel?.account_id ?? null,
+        account_id: panel?.account_id ?? row.capital_account_id ?? null,
         broker_error: panel?.broker_error ?? null,
         status_reason: panel?.status_reason ?? null,
+        capital_market_count: Number(row.capital_market_count || 0),
+        capital_connection_id: row.capital_connection_id ?? null,
       });
     }
     return out;
@@ -233,12 +256,32 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
           connectionId,
           `${row.name} / capital_com (${environment})`
         );
-        await seedAccountInstruments(accountId);
+
+        // Auto-pull Capital markets (quick seed) so FEED/robot are not empty.
+        let marketsCount = 0;
+        let marketsError: string | null = null;
+        let marketsSample: Array<{ epic: string; name: string }> = [];
+        const pull = await pullAndStoreCapitalMarkets({
+          connectionId,
+          accountId,
+          mode: 'quick',
+          actor: 'admin',
+        });
+        if (pull.ok) {
+          marketsCount = pull.count;
+          marketsSample = pull.sample;
+          scheduleFullCapitalMarketsPull(connectionId, accountId);
+        } else {
+          marketsError = pull.error;
+          await seedAccountInstruments(accountId);
+        }
 
         await logAudit('admin', 'client_provisioned', 'client', String(row.id), null, {
           broker_connection_id: connectionId,
           account_id: accountId,
           environment,
+          capital_market_count: marketsCount,
+          markets_error: marketsError,
         });
 
         return {
@@ -248,8 +291,12 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
           access_code: plainPassword,
           broker_connection_id: connectionId,
           account_id: accountId,
-          message:
-            'Client created with Capital.com + web password. Save the access_code now — it will not be shown again.',
+          capital_market_count: marketsCount,
+          capital_markets_sample: marketsSample,
+          capital_markets_error: marketsError,
+          message: marketsError
+            ? `Client created, but Capital markets pull failed: ${marketsError}. Use PULL MARKETS on the client row.`
+            : `Client created with Capital.com. Pulled ${marketsCount} markets (full catalog sync continues in background). Save the access_code now.`,
         };
       } catch (err) {
         await client.query('ROLLBACK');
@@ -371,6 +418,56 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       access_code: code,
       access_enabled: true,
       message: 'Save this access code now — it will not be shown again.',
+    };
+  });
+
+  /** Pull Capital.com markets for this client's Capital connection (quick + schedule full). */
+  app.post('/api/clients/:id/pull-markets', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body || {}) as { mode?: string };
+    const { rows } = await pool.query(
+      `SELECT bc.id as connection_id, ba.id as account_id
+       FROM broker_connections bc
+       LEFT JOIN broker_accounts ba ON ba.broker_connection_id = bc.id
+       WHERE bc.client_id = $1 AND bc.broker_name = 'capital_com'
+       ORDER BY bc.id ASC, ba.id ASC
+       LIMIT 1`,
+      [id]
+    );
+    if (rows.length === 0) {
+      return reply.code(404).send({
+        error: 'No Capital.com connection for this client',
+        message: 'No Capital.com connection for this client',
+      });
+    }
+    const connectionId = rows[0].connection_id as number;
+    let accountId = rows[0].account_id as number | null;
+    if (!accountId) {
+      const client = await pool.query('SELECT name FROM clients WHERE id = $1', [id]);
+      const name = (client.rows[0]?.name as string) || 'Client';
+      accountId = await ensureBrokerAccount(connectionId, `${name} / capital_com`);
+    }
+    const mode = body.mode === 'full' ? 'full' : 'quick';
+    const result = await pullAndStoreCapitalMarkets({
+      connectionId,
+      accountId,
+      mode,
+      actor: 'admin',
+    });
+    if (!result.ok) {
+      return reply.code(result.statusCode).send({ error: result.error, message: result.error });
+    }
+    if (mode === 'quick') {
+      scheduleFullCapitalMarketsPull(result.connection_id, result.account_id);
+    }
+    return {
+      success: true,
+      client_id: Number(id),
+      count: result.count,
+      mode: result.mode,
+      sample: result.sample,
+      capital_market_count: await countCapitalMarkets(connectionId),
+      full_sync_scheduled: mode === 'quick',
     };
   });
 
