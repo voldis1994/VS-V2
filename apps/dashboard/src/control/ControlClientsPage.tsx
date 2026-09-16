@@ -43,6 +43,8 @@ type ClientWebState = {
   url?: string;
   source?: string;
   local_gateway?: string;
+  is_public?: boolean;
+  hint?: string;
 };
 
 const emptyForm = {
@@ -68,20 +70,32 @@ export function ControlClientsPage() {
 
   const rows = useMemo(() => data || [], [data]);
   const publicUrl = (clientWeb?.url || '').trim();
+  const isPublic = Boolean(clientWeb?.is_public);
 
   const loadClientWeb = useCallback(async () => {
     try {
       const s = await apiFetch<ClientWebState>('/api/system/client-web');
       setClientWeb(s);
       setUrlDraft(String(s.url || ''));
-    } catch {
+      setUrlMsg(null);
+    } catch (err) {
       setClientWeb(null);
+      setUrlMsg(err instanceof Error ? err.message : 'Failed to load client public URL');
     }
   }, []);
 
   useEffect(() => {
     void loadClientWeb();
   }, [loadClientWeb]);
+
+  // Poll until Cloudflare / public HTTPS URL appears (LIVE.bat writes marker after tunnel starts).
+  useEffect(() => {
+    if (isPublic) return;
+    const id = window.setInterval(() => {
+      void loadClientWeb();
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [isPublic, loadClientWeb]);
 
   const flashCopied = (label: string) => {
     setCopied(label);
@@ -323,20 +337,38 @@ export function ControlClientsPage() {
           <div>
             <h2 style={{ margin: 0 }}>KLIENTU WEB MĀJASLAPA</h2>
             <p className="cp-muted" style={{ margin: '0.35rem 0 0' }}>
-              Publiska adrese klientiem. Kad Cloudflare / domens mainas — ielime jauno URL,
-              saglabā un nokope klientam.
+              Publiska Cloudflare / HTTPS adrese klientiem. LIVE.bat to izveido automātiski
+              (VS-Cloudflare logs). Ja mainās — ielīmē jauno URL, SAVE un COPY.
             </p>
           </div>
           {copied && <span className="cp-ok">Copied: {copied}</span>}
         </div>
-        <div className="cp-issued-code" style={{ wordBreak: 'break-all', fontSize: '1.1rem' }}>
+        <div
+          className="cp-issued-code"
+          style={{
+            wordBreak: 'break-all',
+            fontSize: '1.15rem',
+            color: isPublic ? undefined : 'var(--cp-danger, #c44)',
+          }}
+        >
           {publicUrl || '—'}
         </div>
+        {!isPublic && (
+          <p className="cp-error" style={{ marginTop: '0.5rem' }}>
+            {clientWeb?.hint ||
+              'Nav publiskas Cloudflare adreses. Pagaidi VS-Cloudflare logu pēc LIVE.bat, vai ielīmē https://….trycloudflare.com zemāk un SAVE.'}
+          </p>
+        )}
+        {isPublic && clientWeb?.hint && (
+          <p className="cp-ok" style={{ marginTop: '0.5rem' }}>
+            {clientWeb.hint}
+          </p>
+        )}
         <div className="cp-row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
           <button
             type="button"
             className="cp-btn primary"
-            disabled={!publicUrl}
+            disabled={!publicUrl || !isPublic}
             onClick={() => void copyText(publicUrl, 'URL')}
           >
             COPY URL
@@ -346,9 +378,13 @@ export function ControlClientsPage() {
               OPEN
             </a>
           )}
+          <button type="button" className="cp-btn ghost" onClick={() => void loadClientWeb()}>
+            REFRESH URL
+          </button>
           <span className="cp-muted">
             {clientWeb?.source ? `source: ${clientWeb.source}` : ''}
             {clientWeb?.local_gateway ? ` · local ${clientWeb.local_gateway}` : ''}
+            {isPublic ? ' · PUBLIC' : ' · LOCAL ONLY'}
           </span>
         </div>
         <label style={{ display: 'block', marginTop: '0.85rem' }}>
