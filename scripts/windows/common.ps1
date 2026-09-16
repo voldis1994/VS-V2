@@ -1073,7 +1073,17 @@ function Ensure-ClientWebDist {
     $dist = Join-Path $dash 'dist-client'
     $indexHtml = Join-Path $dist 'index.html'
     $indexClient = Join-Path $dist 'index.client.html'
+    $srcHtml = Join-Path $dash 'index.client.html'
+    $needBuild = $true
     if ((Test-Path -LiteralPath $indexHtml) -or (Test-Path -LiteralPath $indexClient)) {
+        $needBuild = $false
+        if ((Test-Path -LiteralPath $srcHtml) -and (Test-Path -LiteralPath $indexHtml)) {
+            $srcTime = (Get-Item -LiteralPath $srcHtml).LastWriteTimeUtc
+            $outTime = (Get-Item -LiteralPath $indexHtml).LastWriteTimeUtc
+            if ($srcTime -gt $outTime) { $needBuild = $true }
+        }
+    }
+    if (-not $needBuild) {
         if ((Test-Path -LiteralPath $indexClient) -and -not (Test-Path -LiteralPath $indexHtml) -and -not $DryRun) {
             Copy-Item -LiteralPath $indexClient -Destination $indexHtml -Force
             Write-Ok 'Linked dist-client\index.html <- index.client.html'

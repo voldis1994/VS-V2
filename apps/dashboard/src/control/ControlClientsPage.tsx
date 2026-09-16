@@ -368,6 +368,10 @@ export function ControlClientsPage() {
                 Atrodi rindu <code>https://….trycloudflare.com</code>
               </li>
               <li>Ielīmē zemāk → SAVE URL → COPY URL</li>
+              <li>
+                iPhone Safari: tikai <code>https://</code> (ne 127.0.0.1). Ja “cannot open” —
+                pārlādē 1× vai Chrome; VS-Cloudflare logam jābūt atvērtam.
+              </li>
             </ol>
           </div>
         )}
