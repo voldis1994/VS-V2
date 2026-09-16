@@ -840,3 +840,54 @@ function Resolve-DashboardUrl {
     if ($env:VITE_DEV_SERVER_URL) { return $env:VITE_DEV_SERVER_URL }
     return 'http://127.0.0.1:5173'
 }
+
+function Resolve-ClientWebUrl {
+    $port = if ($env:CLIENT_PUBLIC_PORT -and $env:CLIENT_PUBLIC_PORT -match '^\d+$') {
+        $env:CLIENT_PUBLIC_PORT
+    } else { '5174' }
+    return ('http://127.0.0.1:{0}/' -f $port)
+}
+
+function Ensure-ClientWebDist {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [switch]$DryRun
+    )
+    $dash = Join-Path $Root 'apps\dashboard'
+    $dist = Join-Path $dash 'dist-client'
+    $indexHtml = Join-Path $dist 'index.html'
+    $indexClient = Join-Path $dist 'index.client.html'
+    if ((Test-Path -LiteralPath $indexHtml) -or (Test-Path -LiteralPath $indexClient)) {
+        if ((Test-Path -LiteralPath $indexClient) -and -not (Test-Path -LiteralPath $indexHtml) -and -not $DryRun) {
+            Copy-Item -LiteralPath $indexClient -Destination $indexHtml -Force
+            Write-Ok 'Linked dist-client\index.html <- index.client.html'
+        }
+        Write-Ok ("client web dist ready: {0}" -f $dist)
+        return $dist
+    }
+    Write-Step 'Building public client web (vite build:client -> dist-client)'
+    if ($DryRun) {
+        Write-Host '[dry-run] npm run build:client --workspace=@vs-v2/dashboard'
+        return $dist
+    }
+    $nodeExe = Get-SystemNodeExe
+    $npmCli = Get-SystemNpmCliJs
+    Push-Location $Root
+    try {
+        & $nodeExe $npmCli run build:client --workspace=@vs-v2/dashboard
+        if ($LASTEXITCODE -ne 0) {
+            throw "build:client failed (exit $LASTEXITCODE)"
+        }
+    } finally {
+        Pop-Location
+    }
+    if ((Test-Path -LiteralPath $indexClient) -and -not (Test-Path -LiteralPath $indexHtml)) {
+        Copy-Item -LiteralPath $indexClient -Destination $indexHtml -Force
+        Write-Ok 'Linked dist-client\index.html <- index.client.html'
+    }
+    if (-not (Test-Path -LiteralPath $indexHtml) -and -not (Test-Path -LiteralPath $indexClient)) {
+        throw "client build missing under $dist"
+    }
+    Write-Ok ("client web built: {0}" -f $dist)
+    return $dist
+}

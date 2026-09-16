@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 REM VS-V2 daily Windows LIVE launcher.
-REM Starts Control API + C++ Market Core (--mode LIVE, Capital execution) + Dashboard.
+REM Starts Control API + Market Core LIVE + Dashboard + public Client Web (:5174).
 REM Requires typing LIVE to confirm real broker orders. Does NOT reinstall.
 
 cd /d "%~dp0"
@@ -11,8 +11,9 @@ color 0C
 
 echo.
 echo ============================================================
-echo   VS-V2  LIVE.bat  -  daily LIVE launch (Capital orders ON)
-echo   Opens 3 CMD windows: Control API + Market Core + Dashboard
+echo   VS-V2  LIVE.bat  -  daily LIVE launch (Capital + Client Web)
+echo   Opens 4 CMD windows:
+echo     Control API + Market Core + Dashboard + Client Web :5174
 echo   REAL broker open/close - type LIVE to confirm
 echo ============================================================
 echo   Folder: %ROOT%
@@ -33,6 +34,7 @@ if not exist "%ROOT%\scripts\windows\start-live.ps1" (
 
 echo WARNING: This arms LIVE trading against Capital.com.
 echo          Real money open/close orders become allowed when the stack is healthy.
+echo          Client Web serves on :5174 (put HTTPS tunnel in front for remote clients).
 echo.
 set "TYPED="
 set /p "TYPED=Type LIVE to confirm real Capital broker orders: "
@@ -66,8 +68,9 @@ if not "%RC%"=="0" (
 )
 
 echo.
-echo LIVE stack running. Keep the 3 service CMD windows open.
-echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard
+echo LIVE stack running. Keep the 4 service CMD windows open.
+echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard / VS-ClientWeb
+echo   Client Web: http://127.0.0.1:5174/
 echo   Control Panel mode switch still requires typing LIVE for re-arm.
 pause
 exit /b 0

@@ -50,8 +50,13 @@ function corsOrigins(): boolean | string | string[] {
     .filter(Boolean)
     .join(',');
   if (!raw) {
-    // Dashboard is bound to 127.0.0.1:5173 on Windows; include both forms.
-    return ['http://127.0.0.1:5173', 'http://localhost:5173'];
+    // Admin dashboard :5173 + public client gateway :5174 (Windows/Linux local).
+    return [
+      'http://127.0.0.1:5173',
+      'http://localhost:5173',
+      'http://127.0.0.1:5174',
+      'http://localhost:5174',
+    ];
   }
   const list = raw
     .split(',')

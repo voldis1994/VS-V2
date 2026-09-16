@@ -37,11 +37,14 @@ def test_files_exist() -> list[str]:
         "Install.bat",
         "V2.bat",
         "LIVE.bat",
+        "ClientWeb.bat",
         "scripts/windows/common.ps1",
         "scripts/windows/install.ps1",
         "scripts/windows/start-v2.ps1",
         "scripts/windows/start-live.ps1",
+        "scripts/windows/deploy-client-web.ps1",
         "scripts/start-live.sh",
+        "apps/dashboard/client-gateway.mjs",
     ):
         if not (ROOT / rel).is_file():
             errs.append(f"missing file: {rel}")
@@ -125,6 +128,8 @@ def test_install_flow() -> list[str]:
             "builtin-baseline",
             "Never trust external VCPKG_ROOT",
             "Refusing VS bundled vcpkg",
+            "Ensure-ClientWebDist",
+            "Resolve-ClientWebUrl",
         ],
         "common.ps1",
     )
@@ -234,7 +239,9 @@ def test_live_flow() -> list[str]:
             "-ConfirmLive",
             "OPERATING_MODE=LIVE",
             "LIVE_TRADING_ENABLED=true",
-            "3 CMD windows",
+            "4 CMD windows",
+            "Client Web",
+            "5174",
         ],
         "LIVE.bat",
     )
@@ -253,6 +260,10 @@ def test_live_flow() -> list[str]:
             "VS-ControlAPI",
             "VS-MarketCore",
             "VS-Dashboard",
+            "VS-ClientWeb",
+            "Ensure-ClientWebDist",
+            "client-gateway",
+            "CLIENT_PUBLIC_PORT",
             "OPERATING_MODE=LIVE",
             "LIVE_TRADING_ENABLED=true",
             "Write-RuntimeModeMarker",
@@ -269,6 +280,9 @@ def test_live_flow() -> list[str]:
             "LIVE_TRADING_ENABLED=true",
             "--mode LIVE",
             "CAPITAL_API_KEY",
+            "build:client",
+            "dev:client",
+            "5174",
         ],
         "start-live.sh",
     )
@@ -429,6 +443,7 @@ def test_ps1_ascii_only() -> list[str]:
         "scripts/windows/start-v2.ps1",
         "scripts/windows/start-live.ps1",
         "scripts/windows/restart-control-api.ps1",
+        "scripts/windows/deploy-client-web.ps1",
     ):
         data = (ROOT / rel).read_bytes()
         if any(b > 127 for b in data):

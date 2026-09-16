@@ -3,8 +3,9 @@
 #   1) postgres + redis (docker)
 #   2) Control API  -> visible CMD window (OPERATING_MODE=LIVE)
 #   3) Market Core  -> visible CMD window (--mode LIVE, Capital execution bound)
-#   4) Dashboard    -> visible CMD window
-#   5) browser
+#   4) Dashboard    -> visible CMD window (admin Control Panel :5173)
+#   5) Client Web   -> visible CMD window (public gateway :5174)
+#   6) browser -> Control Panel
 # Does NOT reinstall. Real Capital open/close orders allowed when gates pass.
 param(
     [string]$RepoRoot = '',
@@ -30,8 +31,8 @@ Write-Host '============================================================' -Foreg
 Write-Host '  VS-V2 LIVE.bat - daily LIVE launch (Capital orders ON)' -ForegroundColor Red
 Write-Host '============================================================' -ForegroundColor Red
 Write-Host "  Root: $Root"
-Write-Host '  Opens 3 CMD windows: Control API + Market Core + Dashboard'
-Write-Host '  Mode: LIVE | Live trading: ON | Broker open/close: armed'
+Write-Host '  Opens 4 CMD windows: Control API + Market Core + Dashboard + Client Web'
+Write-Host '  Mode: LIVE | Live trading: ON | Client Web :5174 | Broker open/close: armed'
 Write-Host ''
 
 $marker = Join-Path $Root '.vs-v2-installed'
@@ -49,6 +50,18 @@ elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path
 Enforce-LiveArmed
 Assert-LiveArmed
 Assert-LiveCapitalCredentials
+
+# Public client web (:5174) - cookies/CORS for gateway + optional HTTPS tunnel.
+if (-not $env:CLIENT_PUBLIC_PORT) { $env:CLIENT_PUBLIC_PORT = '5174' }
+if (-not $env:CLIENT_COOKIE_SECURE) { $env:CLIENT_COOKIE_SECURE = 'true' }
+if (-not $env:TRUST_PROXY) { $env:TRUST_PROXY = 'true' }
+if (-not $env:CLIENT_CORS_ORIGIN -or "$($env:CLIENT_CORS_ORIGIN)".Trim() -eq '') {
+    $env:CLIENT_CORS_ORIGIN = 'http://127.0.0.1:5174,http://localhost:5174,http://127.0.0.1:5173,http://localhost:5173'
+    Write-Warn 'CLIENT_CORS_ORIGIN unset - defaulting to local :5173/:5174. For public HTTPS set your tunnel/domain in .env.live'
+}
+if (-not $env:CORS_ORIGIN -or "$($env:CORS_ORIGIN)".Trim() -eq '') {
+    $env:CORS_ORIGIN = 'http://127.0.0.1:5173,http://localhost:5173'
+}
 
 if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKEN') {
     if ($env:ALLOW_INSECURE_ADMIN -ne 'true') {
@@ -122,6 +135,7 @@ function Start-LiveLoggedProcess {
         'DOTENV_CONFIG_PATH',
         'API_ADMIN_TOKEN', 'ALLOW_INSECURE_ADMIN',
         'CORS_ORIGIN', 'CLIENT_CORS_ORIGIN', 'TRUST_PROXY',
+        'CLIENT_COOKIE_SECURE', 'CLIENT_PUBLIC_PORT', 'CLIENT_DIST', 'CLIENT_PANEL_DIST',
         'CAPITAL_API_KEY', 'CAPITAL_API_PASSWORD', 'CAPITAL_IDENTIFIER', 'CAPITAL_EPIC', 'CAPITAL_BASE_URL',
         'MASTER_ENCRYPTION_KEY', 'JWT_SECRET', 'PIPELINE_TOKEN',
         'VS_V2_MODEL_PATH', 'VS_V2_MODEL_ID', 'VS_V2_MODEL_VERSION'
@@ -269,7 +283,7 @@ $apiEnvLines = @(
     'set PREFIX=',
     'set VITE_API_URL='
 )
-foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL','MARKET_CORE_BRIDGE','CAPITAL_API_KEY','CAPITAL_API_PASSWORD','CAPITAL_IDENTIFIER','CAPITAL_EPIC','CAPITAL_BASE_URL')) {
+foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','CLIENT_COOKIE_SECURE','CLIENT_PUBLIC_PORT','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL','MARKET_CORE_BRIDGE','CAPITAL_API_KEY','CAPITAL_API_PASSWORD','CAPITAL_IDENTIFIER','CAPITAL_EPIC','CAPITAL_BASE_URL')) {
     if ($apiExtra.ContainsKey($k)) {
         $apiEnvLines += ('set {0}={1}' -f $k, $apiExtra[$k])
     } else {
@@ -333,7 +347,7 @@ if ($SkipMarketCore) {
     Write-Ok 'market-core --mode LIVE (Capital order gateway bound when creds/auth OK)'
 }
 
-# --- 3) Dashboard ---
+# --- 3) Dashboard (admin Control Panel :5173) ---
 $sysNode = Get-SystemNodeExe
 $npmCli = Get-SystemNpmCliJs
 Write-Ok 'dashboard via node + system npm-cli.js (bypass npm.ps1 prefix bug)'
@@ -349,7 +363,32 @@ Start-LiveLoggedProcess -Title 'VS-Dashboard' -FilePath $sysNode `
         API_ADMIN_TOKEN      = $(if ($env:API_ADMIN_TOKEN) { $env:API_ADMIN_TOKEN } else { '' })
     } | Out-Null
 
-Write-Ok 'All LIVE service CMD windows launched (Control API + Market Core + Dashboard)'
+# --- 4) Public Client Web gateway (:5174) ---
+Write-Step 'Public Client Web (dist-client + client-gateway :5174)'
+$clientDist = Ensure-ClientWebDist -Root $Root -DryRun:$DryRun
+$env:CLIENT_DIST = $clientDist
+$env:CLIENT_PANEL_DIST = $clientDist
+$gatewayJs = Join-Path $Root 'apps\dashboard\client-gateway.mjs'
+if (-not (Test-Path -LiteralPath $gatewayJs) -and -not $DryRun) {
+    throw "Missing $gatewayJs"
+}
+Start-LiveLoggedProcess -Title 'VS-ClientWeb' -FilePath $sysNode `
+    -Arguments ('"{0}"' -f $gatewayJs) `
+    -WorkingDirectory (Join-Path $Root 'apps\dashboard') -LogName 'client-web.live.log' -ExtraEnv @{
+        OPERATING_MODE         = 'LIVE'
+        LIVE_TRADING_ENABLED   = 'true'
+        CLIENT_PUBLIC_PORT     = $(if ($env:CLIENT_PUBLIC_PORT) { $env:CLIENT_PUBLIC_PORT } else { '5174' })
+        CLIENT_DIST            = $clientDist
+        CLIENT_PANEL_DIST      = $clientDist
+        CONTROL_API_HOST       = '127.0.0.1'
+        CONTROL_API_PORT       = '3000'
+        CLIENT_COOKIE_SECURE   = $(if ($env:CLIENT_COOKIE_SECURE) { $env:CLIENT_COOKIE_SECURE } else { 'true' })
+        TRUST_PROXY            = $(if ($env:TRUST_PROXY) { $env:TRUST_PROXY } else { 'true' })
+        CLIENT_CORS_ORIGIN     = $(if ($env:CLIENT_CORS_ORIGIN) { $env:CLIENT_CORS_ORIGIN } else { '' })
+    } | Out-Null
+Write-Ok 'VS-ClientWeb gateway on :5174 (public client login via access_code)'
+
+Write-Ok 'All LIVE service CMD windows launched (API + Market Core + Dashboard + Client Web)'
 
 $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
 if (-not $DryRun) {
@@ -366,12 +405,19 @@ if (-not $DryRun) {
 
 $dashUrl = Resolve-DashboardUrl
 $controlUrl = ($dashUrl.TrimEnd('/') + '/control')
+$clientUrl = Resolve-ClientWebUrl
 if (-not $DryRun) {
     Write-Step 'Waiting for Dashboard'
     if (-not (Wait-HttpOk -Url $dashUrl -Attempts 60 -DelayMs 500 -Label 'Dashboard')) {
         Write-Warn "Dashboard not responding yet at $dashUrl (check VS-Dashboard window / logs\dashboard.live.log)"
     } else {
         Write-Ok "Dashboard up $dashUrl"
+    }
+    Write-Step 'Waiting for Client Web gateway'
+    if (-not (Wait-HttpOk -Url $clientUrl -Attempts 40 -DelayMs 500 -Label 'Client Web :5174')) {
+        Write-Warn "Client Web not responding yet at $clientUrl (check VS-ClientWeb / logs\client-web.live.log)"
+    } else {
+        Write-Ok "Client Web up $clientUrl"
     }
     if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 5 -DelayMs 500 -Label 'Control API recheck' -Quiet)) {
         Write-LogTail -Path $apiLog -Lines 80
@@ -395,13 +441,13 @@ if (-not $DryRun) {
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Red
 Write-Host '  LIVE stack running (started by LIVE.bat)' -ForegroundColor Red
-Write-Host '  CMD windows: VS-ControlAPI | VS-MarketCore | VS-Dashboard' -ForegroundColor Red
-Write-Host "  Dashboard: $dashUrl" -ForegroundColor Red
+Write-Host '  CMD: VS-ControlAPI | VS-MarketCore | VS-Dashboard | VS-ClientWeb' -ForegroundColor Red
 Write-Host "  Control Panel: $controlUrl" -ForegroundColor Red
+Write-Host "  Client Web:    $clientUrl" -ForegroundColor Red
 Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Red
 Write-Host '  Mode: LIVE | Live trading: true | Broker orders: ARMED' -ForegroundColor Red
 Write-Host "  Logs: $logs\*.live.log" -ForegroundColor Red
-Write-Host '  Keep the 3 service CMD windows open. Close a window to stop that service.' -ForegroundColor Yellow
-Write-Host '  Demote via Control Panel PAPER/SHADOW if you need fail-closed.' -ForegroundColor Yellow
+Write-Host '  Public HTTPS: put Cloudflare/nginx TLS in front of :5174' -ForegroundColor Yellow
+Write-Host '  Set CLIENT_CORS_ORIGIN=https://your-public-host in .env.live' -ForegroundColor Yellow
 Write-Host '============================================================' -ForegroundColor Red
 exit 0

@@ -110,6 +110,26 @@ npm run dev --workspace=@vs-v2/dashboard >logs/dashboard.live.log 2>&1 &
 DASH_PID=$!
 echo "$DASH_PID" >logs/dashboard.live.pid
 
+echo "==> Building + starting public Client Web (:5174)"
+export CLIENT_PUBLIC_PORT="${CLIENT_PUBLIC_PORT:-5174}"
+export CLIENT_COOKIE_SECURE="${CLIENT_COOKIE_SECURE:-true}"
+export TRUST_PROXY="${TRUST_PROXY:-true}"
+if [[ -z "${CLIENT_CORS_ORIGIN:-}" ]]; then
+  export CLIENT_CORS_ORIGIN="http://127.0.0.1:5174,http://localhost:5174,http://127.0.0.1:5173,http://localhost:5173"
+fi
+npm run build:client --workspace=@vs-v2/dashboard
+DIST="$ROOT/apps/dashboard/dist-client"
+if [[ -f "$DIST/index.client.html" && ! -f "$DIST/index.html" ]]; then
+  cp -f "$DIST/index.client.html" "$DIST/index.html"
+fi
+export CLIENT_DIST="$DIST"
+export CLIENT_PANEL_DIST="$DIST"
+export CONTROL_API_HOST="${CONTROL_API_HOST:-127.0.0.1}"
+export CONTROL_API_PORT="${CONTROL_API_PORT:-3000}"
+npm run dev:client --workspace=@vs-v2/dashboard >logs/client-web.live.log 2>&1 &
+CLIENT_PID=$!
+echo "$CLIENT_PID" >logs/client-web.live.pid
+
 sleep 2
 
 cat <<EOF
@@ -117,7 +137,11 @@ cat <<EOF
 LIVE stack running (Capital open/close armed when gates pass):
   control-api  pid=$API_PID  log=logs/control-api.live.log
   market-core  pid=$MC_PID   log=logs/market-core.live.log  (--mode LIVE)
-  dashboard    pid=$DASH_PID log=logs/dashboard.live.log
+  dashboard    pid=$DASH_PID log=logs/dashboard.live.log     (admin :5173)
+  client-web   pid=$CLIENT_PID log=logs/client-web.live.log  (public :5174)
+
+  Client Web: http://127.0.0.1:${CLIENT_PUBLIC_PORT}/
+  Put Cloudflare/nginx TLS in front; set CLIENT_CORS_ORIGIN to your HTTPS origin.
 
 Stop: kill \$(cat logs/*.live.pid)
 EOF

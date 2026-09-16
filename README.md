@@ -80,12 +80,15 @@ PAPER fail-closed fallback: `V2.bat`. First-time setup: `Install.bat`.
 
 ### Public client web
 
-Admin Control Panel is the dashboard. Remote clients use a separate build:
+Admin Control Panel is the dashboard (`:5173`). Remote clients use a separate build on **`:5174`**:
 
 ```bash
 npm run build:client --workspace=@vs-v2/dashboard
 # or one-shot:
 bash scripts/deploy-client-web.sh
+# Windows: ClientWeb.bat  (or LIVE.bat starts Client Web automatically)
 ```
 
-Gateway serves `apps/dashboard/dist-client` and proxies `/api` + `/ws` to Control API. Clients must use public HTTPS (not Wi‑Fi-only).
+Gateway serves `apps/dashboard/dist-client` and proxies `/api` + `/ws` to Control API.
+Clients must use public HTTPS (Cloudflare tunnel / nginx in front of `:5174`).
+Set `CLIENT_CORS_ORIGIN` to that HTTPS origin, plus `CLIENT_COOKIE_SECURE=true` and `TRUST_PROXY=true`.
