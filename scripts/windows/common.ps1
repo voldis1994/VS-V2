@@ -1323,10 +1323,15 @@ function Ensure-ClientWebDist {
     $needBuild = $true
     if ((Test-Path -LiteralPath $indexHtml) -or (Test-Path -LiteralPath $indexClient)) {
         $needBuild = $false
-        if ((Test-Path -LiteralPath $srcHtml) -and (Test-Path -LiteralPath $indexHtml)) {
+        if (Test-Path -LiteralPath $srcHtml) {
             $srcTime = (Get-Item -LiteralPath $srcHtml).LastWriteTimeUtc
-            $outTime = (Get-Item -LiteralPath $indexHtml).LastWriteTimeUtc
-            if ($srcTime -gt $outTime) { $needBuild = $true }
+            $outCandidates = @()
+            if (Test-Path -LiteralPath $indexHtml) { $outCandidates += (Get-Item -LiteralPath $indexHtml).LastWriteTimeUtc }
+            if (Test-Path -LiteralPath $indexClient) { $outCandidates += (Get-Item -LiteralPath $indexClient).LastWriteTimeUtc }
+            if ($outCandidates.Count -gt 0) {
+                $outTime = ($outCandidates | Measure-Object -Maximum).Maximum
+                if ($srcTime -gt $outTime) { $needBuild = $true }
+            }
         }
     }
     if (-not $needBuild) {

@@ -390,8 +390,10 @@ export function ControlClientsPage() {
           <div>
             <h2 style={{ margin: 0 }}>KLIENTU WEB MĀJASLAPA</h2>
             <p className="cp-muted" style={{ margin: '0.35rem 0 0' }}>
-              Publiska adrese klientiem. LIVE.bat atver VS-Cloudflare logu — tur paradas
-              dzeltena rinda ar https://….trycloudflare.com. Tad seit REFRESH URL → COPY URL.
+              Publiska adrese klientiem (iPhone). LIVE.bat → VS-Cloudflare → COPY URL.
+              Safari jāatver <strong>šī</strong> https://….trycloudflare.com adrese (ne Photos/mockup
+              bildes, ne Control Panel :5173). Jāparādās pilnekrāna VS Client (logo + parole),
+              nevis mazs landscape dashboard.
             </p>
           </div>
           {copied && <span className="cp-ok">Copied: {copied}</span>}

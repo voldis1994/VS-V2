@@ -356,112 +356,115 @@ export function ClientPanelPage() {
 
         {gate === 'app' && (
           <>
-            <div style={{ textAlign: 'center' }}>
+            <div className="cw-header">
               <img className="cw-logo-sm" src="/logo-full.png" alt="VS" />
               <div className="cw-client-name">{status?.client_name || '…'}</div>
               <div className="cp-muted">{t.online}</div>
             </div>
 
-            {tab === 'home' && (
-              <>
-                <button
-                  type="button"
-                  className={`cw-robot ${running ? 'running' : ''}`}
-                  disabled={busy}
-                  onClick={() => void toggleRobot()}
-                  aria-label={active ? t.stop : t.start}
-                >
-                  <span className="bot">🤖</span>
-                </button>
-                <div className="cw-robot-meta">
-                  <span className="start">{t.start}</span>
-                  <span className="stop">{t.stop}</span>
-                </div>
-                {!riskOn && <div className="cp-error">{t.riskOff}</div>}
-
-                <div className="cw-card">
-                  <div className="cap">{t.market}</div>
-                  <select
-                    className="cw-select"
-                    value={epic}
-                    disabled={active || busy || !riskOn || markets.length === 0}
-                    onChange={(e) => void onMarket(e.target.value)}
+            <div className="cw-main">
+              {tab === 'home' && (
+                <>
+                  <button
+                    type="button"
+                    className={`cw-robot ${running ? 'running' : ''}`}
+                    disabled={busy}
+                    onClick={() => void toggleRobot()}
+                    aria-label={active ? t.stop : t.start}
                   >
-                    {markets.length === 0 && <option value="">—</option>}
-                    {markets.map((m) => (
-                      <option key={m.instrument_id} value={m.epic}>
-                        {m.display_name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="cap" style={{ marginTop: '0.85rem' }}>
-                    {t.lot}
+                    <img className="bot-img" src="/logo-emblem.png" alt="" />
+                  </button>
+                  <div className="cw-robot-meta">
+                    <span className="start">{t.start}</span>
+                    <span className="stop">{t.stop}</span>
                   </div>
-                  <div className="cw-lot-row">
-                    <button
-                      type="button"
-                      className="cw-lot-btn"
-                      disabled={active || !riskOn}
-                      onClick={() => void bumpLot(-1)}
-                    >
-                      −
-                    </button>
-                    <div className="cw-lot-val">{fmtLot(lot)}</div>
-                    <button
-                      type="button"
-                      className="cw-lot-btn"
-                      disabled={active || !riskOn}
-                      onClick={() => void bumpLot(1)}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
+                  {!riskOn && <div className="cp-error">{t.riskOff}</div>}
 
-                <div className="cw-card cw-live">
-                  <div className="cap">{t.liveTrade}</div>
-                  {status?.live_trade ? (
-                    <div>
-                      <div>
-                        {status.live_trade.side} ·{' '}
-                        {status.live_trade.display_name || status.live_trade.market}
-                      </div>
-                      <div className="cp-muted">
-                        {fmtLot(status.live_trade.lot_size)} · entry{' '}
-                        {status.live_trade.entry_price ?? '—'}
-                      </div>
+                  <div className="cw-card">
+                    <div className="cap">{t.market}</div>
+                    <select
+                      className="cw-select"
+                      value={epic}
+                      disabled={active || busy || !riskOn || markets.length === 0}
+                      onChange={(e) => void onMarket(e.target.value)}
+                    >
+                      {markets.length === 0 && <option value="">—</option>}
+                      {markets.map((m) => (
+                        <option key={m.instrument_id} value={m.epic}>
+                          {m.display_name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="cap" style={{ marginTop: '0.85rem' }}>
+                      {t.lot}
                     </div>
-                  ) : (
-                    <div className="cp-muted">{t.noTrade}</div>
-                  )}
+                    <div className="cw-lot-row">
+                      <button
+                        type="button"
+                        className="cw-lot-btn"
+                        disabled={active || !riskOn}
+                        onClick={() => void bumpLot(-1)}
+                      >
+                        −
+                      </button>
+                      <div className="cw-lot-val">{fmtLot(lot)}</div>
+                      <button
+                        type="button"
+                        className="cw-lot-btn"
+                        disabled={active || !riskOn}
+                        onClick={() => void bumpLot(1)}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="cw-card cw-live">
+                    <div className="cap">{t.liveTrade}</div>
+                    {status?.live_trade ? (
+                      <div>
+                        <div>
+                          {status.live_trade.side} ·{' '}
+                          {status.live_trade.display_name || status.live_trade.market}
+                        </div>
+                        <div className="cp-muted">
+                          {fmtLot(status.live_trade.lot_size)} · entry{' '}
+                          {status.live_trade.entry_price ?? '—'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="cp-muted">{t.noTrade}</div>
+                    )}
+                  </div>
+                  {error && <div className="cp-error">{error}</div>}
+                </>
+              )}
+
+              {tab === 'trades' && (
+                <div className="cw-card">
+                  <div className="cap">{t.analytics}</div>
+                  <div className="cp-muted">{status?.display_name || status?.market || '—'}</div>
+                  <div className="cp-muted">Robot: {status?.robot_status || '—'}</div>
+                  <div className="cp-muted">Broker: {status?.broker_status || '—'}</div>
                 </div>
-                {error && <div className="cp-error">{error}</div>}
-              </>
-            )}
+              )}
 
-            {tab === 'trades' && (
-              <div className="cw-card">
-                <div className="cap">{t.analytics}</div>
-                <div className="cp-muted">{status?.display_name || status?.market || '—'}</div>
-                <div className="cp-muted">Robot: {status?.robot_status || '—'}</div>
-              </div>
-            )}
-
-            {tab === 'settings' && (
-              <div className="cw-card">
-                <div className="cap">{t.settings}</div>
-                <div className="cw-btn-stack">
-                  <button type="button" className="cw-btn lang" onClick={() => setGate('lang')}>
-                    {t.chooseLang}
-                  </button>
-                  <button type="button" className="cw-btn" onClick={() => void logout()}>
-                    {t.logout}
-                  </button>
+              {tab === 'settings' && (
+                <div className="cw-card">
+                  <div className="cap">{t.settings}</div>
+                  <div className="cw-btn-stack">
+                    <button type="button" className="cw-btn lang" onClick={() => setGate('lang')}>
+                      {t.chooseLang}
+                    </button>
+                    <button type="button" className="cw-btn" onClick={() => void logout()}>
+                      {t.logout}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            <nav className="cw-nav">
+            <nav className="cw-nav" aria-label="Client navigation">
               <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}>
                 <span className="ico">⌂</span>
                 {t.home}
@@ -473,10 +476,6 @@ export function ClientPanelPage() {
               >
                 <span className="ico">▣</span>
                 {t.analytics}
-              </button>
-              <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}>
-                <span className="ico">🤖</span>
-                {t.bot}
               </button>
               <button
                 type="button"

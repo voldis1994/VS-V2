@@ -733,24 +733,56 @@ body.cp-body-root::before {
   }
 }
 
-/* -------- Client web (mobile-first) -------- */
+/* -------- Client web (mobile full-bleed — NOT landscape desktop mockups) -------- */
 
 .cw-app {
-  min-height: 100vh;
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: 100%;
+  min-height: -webkit-fill-available;
   display: flex;
-  justify-content: center;
+  justify-content: stretch;
+  align-items: stretch;
+  overflow: hidden;
+  font-family: var(--cp-font);
+  color: var(--cp-text);
+  background:
+    radial-gradient(900px 480px at 10% -10%, rgba(255, 45, 149, 0.16), transparent 55%),
+    radial-gradient(700px 420px at 100% 0%, rgba(45, 226, 230, 0.1), transparent 50%),
+    linear-gradient(180deg, #0a0710 0%, #050508 55%, #030306 100%);
+}
+
+.cw-app::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 45, 149, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 226, 230, 0.035) 1px, transparent 1px);
+  background-size: 42px 42px;
+  z-index: 0;
 }
 
 .cw-phone {
-  width: min(430px, 100%);
-  min-height: 100vh;
-  min-height: 100dvh;
-  padding: 1.1rem 1.1rem 5.5rem;
   position: relative;
   z-index: 1;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: max(0.85rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px))
+    calc(5.75rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .cw-splash,
@@ -763,16 +795,18 @@ body.cp-body-root::before {
   justify-content: center;
   text-align: center;
   gap: 1rem;
+  width: 100%;
+  min-height: 0;
 }
 
 .cw-logo-full {
-  width: min(260px, 70vw);
+  width: min(280px, 78vw);
   height: auto;
   filter: drop-shadow(0 0 22px rgba(255, 45, 149, 0.55));
 }
 
 .cw-logo-sm {
-  width: 120px;
+  width: min(140px, 42vw);
   height: auto;
   margin-bottom: 0.25rem;
 }
@@ -780,14 +814,28 @@ body.cp-body-root::before {
 .cw-title {
   font-family: var(--cp-display);
   letter-spacing: 0.14em;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--cp-cyan);
 }
 
 .cw-client-name {
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   font-weight: 700;
   margin-top: 0.15rem;
+}
+
+.cw-header {
+  text-align: center;
+  flex: 0 0 auto;
+  margin-bottom: 0.35rem;
+}
+
+.cw-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
 }
 
 .cw-btn-stack {
@@ -839,8 +887,8 @@ body.cp-body-root::before {
 }
 
 .cw-robot {
-  margin: 1.2rem auto 1rem;
-  width: min(220px, 62vw);
+  margin: 1.4rem auto 1rem;
+  width: min(260px, 68vw);
   aspect-ratio: 1;
   border-radius: 50%;
   border: 3px solid transparent;
@@ -852,6 +900,9 @@ body.cp-body-root::before {
   cursor: pointer;
   box-shadow: 0 0 28px rgba(255, 45, 149, 0.35);
   position: relative;
+  flex: 0 0 auto;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .cw-robot.running {
@@ -866,9 +917,9 @@ body.cp-body-root::before {
 .cw-robot-meta {
   display: flex;
   justify-content: space-between;
-  width: min(220px, 62vw);
-  margin: 0 auto 1rem;
-  font-size: 0.75rem;
+  width: min(260px, 68vw);
+  margin: 0 auto 1.1rem;
+  font-size: 0.78rem;
   letter-spacing: 0.08em;
 }
 
@@ -926,18 +977,27 @@ body.cp-body-root::before {
 
 .cw-nav {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
   bottom: 0;
-  width: min(430px, 100%);
+  width: 100%;
+  max-width: 100%;
+  transform: none;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.25rem;
   padding: 0.65rem 0.75rem calc(0.65rem + env(safe-area-inset-bottom));
-  background: rgba(6, 4, 12, 0.92);
+  background: rgba(6, 4, 12, 0.96);
   border-top: 1px solid rgba(255, 45, 149, 0.25);
   backdrop-filter: blur(10px);
   z-index: 5;
+}
+
+.cw-robot .bot-img {
+  width: 58%;
+  height: 58%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 12px rgba(255, 45, 149, 0.8));
 }
 
 .cw-nav button {
