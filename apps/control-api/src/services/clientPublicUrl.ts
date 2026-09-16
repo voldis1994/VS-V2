@@ -1,9 +1,13 @@
 /**
  * Public Client Web homepage URL — what admins copy and send to clients.
  * Source order: marker file → CLIENT_PUBLIC_URL env → first https CLIENT_CORS_ORIGIN → local :5174
+ *
+ * trycloudflare.com URLs die when the tunnel process exits. We probe reachability and
+ * clear dead markers so iPhone Safari does not keep a hostname that DNS no longer resolves.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import dns from 'node:dns/promises';
 
 const MARKER = '.vs-v2-client-public-url';
 
@@ -76,6 +80,14 @@ function localGatewayUrl(): string {
   return `http://127.0.0.1:${port}`;
 }
 
+export function isTryCloudflareUrl(url: string): boolean {
+  try {
+    return new URL(normalizeUrl(url)).hostname.toLowerCase().endsWith('.trycloudflare.com');
+  } catch {
+    return /trycloudflare\.com/i.test(url);
+  }
+}
+
 export function isPublicClientUrl(url: string): boolean {
   const u = normalizeUrl(url);
   if (!u) return false;
@@ -118,37 +130,16 @@ export function resolveClientPublicUrl(): string {
   return localGatewayUrl();
 }
 
-export function getClientWebPublicState(): {
+export type ClientWebPublicState = {
   url: string;
   source: 'env' | 'cors' | 'local' | 'marker';
   local_gateway: string;
   editable: true;
   is_public: boolean;
+  reachable: boolean | null;
+  stale: boolean;
   hint: string;
-} {
-  loadClientPublicUrlFromDisk();
-  const marker = markerPath();
-  let source: 'env' | 'cors' | 'local' | 'marker' = 'local';
-  if (process.env.CLIENT_PUBLIC_URL) {
-    source = fs.existsSync(marker) || markerPaths().some((p) => fs.existsSync(p))
-      ? 'marker'
-      : 'env';
-  } else if (firstHttpsCorsOrigin()) {
-    source = 'cors';
-  }
-  const url = resolveClientPublicUrl();
-  const isPublic = isPublicClientUrl(url);
-  return {
-    url,
-    source: isPublic || source !== 'local' ? source : 'local',
-    local_gateway: localGatewayUrl(),
-    editable: true,
-    is_public: isPublic,
-    hint: isPublic
-      ? 'Public HTTPS URL — copy and send to clients.'
-      : 'No Cloudflare / public HTTPS yet. LIVE.bat starts a quick tunnel automatically; or paste https://….trycloudflare.com below and SAVE.',
-  };
-}
+};
 
 /** Ensure CLIENT_CORS_ORIGIN includes the public URL (credentials / fetch). */
 function ensureCorsIncludes(url: string): void {
@@ -167,6 +158,179 @@ function ensureCorsIncludes(url: string): void {
     cur.push(origin);
     process.env.CLIENT_CORS_ORIGIN = cur.join(',');
   }
+}
+
+function stripCorsOrigin(url: string): void {
+  let origin = url;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    /* keep */
+  }
+  const cur = (process.env.CLIENT_CORS_ORIGIN || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((c) => c.toLowerCase() !== origin.toLowerCase());
+  process.env.CLIENT_CORS_ORIGIN = cur.join(',');
+}
+
+/** Clear persisted public URL (used when trycloudflare tunnel dies). */
+export function clearClientPublicUrl(opts?: { onlyTryCloudflare?: boolean }): {
+  cleared: boolean;
+  previous: string | null;
+} {
+  const prev = normalizeUrl(process.env.CLIENT_PUBLIC_URL || '') || loadClientPublicUrlFromDisk();
+  if (!prev) {
+    return { cleared: false, previous: null };
+  }
+  if (opts?.onlyTryCloudflare && !isTryCloudflareUrl(prev)) {
+    return { cleared: false, previous: prev };
+  }
+  delete process.env.CLIENT_PUBLIC_URL;
+  stripCorsOrigin(prev);
+  for (const p of markerPaths()) {
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+      /* ignore */
+    }
+  }
+  // Also clear companion text file written by LIVE tunnel runner
+  try {
+    const root = process.env.VS_V2_ROOT ? path.resolve(process.env.VS_V2_ROOT) : process.cwd();
+    const txt = path.join(root, 'logs', 'client-public-url.txt');
+    if (fs.existsSync(txt)) fs.unlinkSync(txt);
+  } catch {
+    /* ignore */
+  }
+  return { cleared: true, previous: prev };
+}
+
+/**
+ * Quick reachability check for public client URL.
+ * trycloudflare hostnames stop resolving in DNS when the quick tunnel ends — that is
+ * exactly the iPhone Safari "server can't be found" failure.
+ */
+export async function probeClientPublicUrl(
+  url: string,
+  timeoutMs = 3500
+): Promise<{ reachable: boolean; detail: string }> {
+  const u = normalizeUrl(url);
+  if (!u || !isPublicClientUrl(u)) {
+    return { reachable: false, detail: 'not a public https URL' };
+  }
+  let host = '';
+  try {
+    host = new URL(u).hostname;
+  } catch {
+    return { reachable: false, detail: 'invalid URL' };
+  }
+
+  try {
+    await Promise.race([
+      dns.lookup(host),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('dns timeout')), timeoutMs)),
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      reachable: false,
+      detail: /ENOTFOUND|EAI_AGAIN|dns timeout|getaddrinfo/i.test(msg)
+        ? 'DNS: hostname not found (tunnel dead — open VS-Cloudflare for a new URL)'
+        : `DNS failed: ${msg}`,
+    };
+  }
+
+  // Optional HTTP probe — some networks block HEAD; treat DNS OK as reachable for stable domains.
+  if (!isTryCloudflareUrl(u)) {
+    return { reachable: true, detail: 'dns ok' };
+  }
+
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(u, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: ac.signal,
+      headers: { Accept: 'text/html,*/*' },
+    });
+    // Any HTTP response means the tunnel edge answered (even 502 from dead local target).
+    if (res.status > 0) {
+      return { reachable: true, detail: `http ${res.status}` };
+    }
+    return { reachable: false, detail: 'empty http response' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // DNS already passed — tunnel hostname exists but fetch failed (local :5174 down, etc.)
+    if (/abort|timeout/i.test(msg)) {
+      return { reachable: false, detail: 'http timeout (tunnel or Client Web :5174 down)' };
+    }
+    return { reachable: false, detail: `http failed: ${msg}` };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function baseState(): ClientWebPublicState {
+  loadClientPublicUrlFromDisk();
+  const marker = markerPath();
+  let source: ClientWebPublicState['source'] = 'local';
+  if (process.env.CLIENT_PUBLIC_URL) {
+    source =
+      fs.existsSync(marker) || markerPaths().some((p) => fs.existsSync(p)) ? 'marker' : 'env';
+  } else if (firstHttpsCorsOrigin()) {
+    source = 'cors';
+  }
+  const url = resolveClientPublicUrl();
+  const isPublic = isPublicClientUrl(url);
+  return {
+    url,
+    source: isPublic || source !== 'local' ? source : 'local',
+    local_gateway: localGatewayUrl(),
+    editable: true,
+    is_public: isPublic,
+    reachable: isPublic ? null : true,
+    stale: false,
+    hint: isPublic
+      ? 'Public HTTPS URL — copy and send to clients. Keep VS-Cloudflare open.'
+      : 'No Cloudflare / public HTTPS yet. LIVE.bat starts a quick tunnel automatically; or paste https://….trycloudflare.com below and SAVE.',
+  };
+}
+
+export function getClientWebPublicState(): ClientWebPublicState {
+  return baseState();
+}
+
+/** Async: probe trycloudflare and clear marker if DNS is dead. */
+export async function getClientWebPublicStateProbed(): Promise<ClientWebPublicState> {
+  const state = baseState();
+  if (!state.is_public) return state;
+  if (!isTryCloudflareUrl(state.url)) {
+    return { ...state, reachable: true, stale: false };
+  }
+
+  const probe = await probeClientPublicUrl(state.url);
+  if (probe.reachable) {
+    return {
+      ...state,
+      reachable: true,
+      stale: false,
+      hint: 'Cloudflare tunnel reachable — copy URL for iPhone. Keep VS-Cloudflare window open.',
+    };
+  }
+
+  // Dead trycloudflare — clear so Clients page stops advertising a ghost hostname.
+  clearClientPublicUrl({ onlyTryCloudflare: true });
+  const cleared = baseState();
+  return {
+    ...cleared,
+    reachable: false,
+    stale: true,
+    is_public: false,
+    hint: `Iepriekšējā Cloudflare adrese MIRUSI (${probe.detail}). Atver VS-Cloudflare logu, paņem JAUNO https://….trycloudflare.com, REFRESH URL → COPY URL. iPhone: izdzēs veco bookmark.`,
+  };
 }
 
 export function setClientPublicUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {

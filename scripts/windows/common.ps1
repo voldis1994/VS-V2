@@ -168,7 +168,12 @@ function Invoke-LivePreflight {
             Write-Warn 'live_entries_allowed=false until market-core --mode LIVE brain feed connects'
         }
         $cm = 0
+        $cs = 0
         try { $cm = [int]$st.capital_markets } catch { $cm = 0 }
+        try { $cs = [int]$st.capital_senders } catch { $cs = 0 }
+        if ($cs -le 0) {
+            Write-Warn 'capital_senders=0 - no Capital.com broker_connections. Clients -> attach Capital API key.'
+        }
         if ($cm -le 0) {
             Write-Warn 'capital_markets=0 - pulling empty Capital catalogs now'
             try {
@@ -178,6 +183,8 @@ function Invoke-LivePreflight {
                 }
                 $pull = Invoke-RestMethod -Method Post -Uri "$api/api/clients/pull-empty-markets" -Headers $headers -Body '{}' -TimeoutSec 120
                 Write-Ok ("pull-empty-markets: attempted={0} succeeded={1} markets={2}" -f $pull.attempted, $pull.succeeded, $pull.total_markets)
+                if ($pull.note) { Write-Warn ([string]$pull.note) }
+                if ($pull.message -and $pull.attempted -eq 0) { Write-Warn ([string]$pull.message) }
                 if ($pull.failed -and @($pull.failed).Count -gt 0) {
                     Write-Warn ("some Capital pulls failed - check Clients Capital API key: {0}" -f (($pull.failed | ForEach-Object { $_.error }) -join '; '))
                 }
@@ -987,6 +994,25 @@ function Start-ClientWebCloudflareTunnel {
         Write-Ok "Keeping existing public CLIENT_PUBLIC_URL: $existing"
         [void](Publish-ClientPublicUrlToApi -Url $existing)
         return $existing
+    }
+
+    # Stale trycloudflare hostnames DNS-fail on iPhone ("server can't be found"). Clear before new tunnel.
+    if ($existing -match 'trycloudflare\.com' -or (Test-Path -LiteralPath $markerPath)) {
+        Write-Warn 'Clearing previous trycloudflare URL before new tunnel (old hostname dies with tunnel)'
+        try {
+            if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
+            $urlTxt = Join-Path $Root 'logs\client-public-url.txt'
+            if (Test-Path -LiteralPath $urlTxt) { Remove-Item -LiteralPath $urlTxt -Force -ErrorAction SilentlyContinue }
+            $env:CLIENT_PUBLIC_URL = ''
+            $apiBaseClear = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
+            try {
+                $headers = @{}
+                if ($env:API_ADMIN_TOKEN -and $env:API_ADMIN_TOKEN -ne 'CHANGE_ME_ADMIN_TOKEN') {
+                    $headers['x-admin-token'] = $env:API_ADMIN_TOKEN
+                }
+                Invoke-RestMethod -Method Post -Uri "$apiBaseClear/api/system/client-web/clear" -Headers $headers -TimeoutSec 5 | Out-Null
+            } catch { }
+        } catch { }
     }
 
     $cf = Resolve-Tool -Name 'cloudflared'

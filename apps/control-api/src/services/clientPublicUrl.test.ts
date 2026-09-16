@@ -8,6 +8,8 @@ import {
   getClientWebPublicState,
   loadClientPublicUrlFromDisk,
   isPublicClientUrl,
+  clearClientPublicUrl,
+  isTryCloudflareUrl,
 } from './clientPublicUrl.js';
 
 describe('clientPublicUrl', () => {
@@ -73,5 +75,23 @@ describe('clientPublicUrl', () => {
   it('rejects localhost as public', () => {
     expect(isPublicClientUrl('http://127.0.0.1:5174')).toBe(false);
     expect(isPublicClientUrl('https://localhost')).toBe(false);
+  });
+
+  it('detects trycloudflare and clears dead public URL', () => {
+    expect(isTryCloudflareUrl('https://comfort-trips-reid-browser.trycloudflare.com')).toBe(true);
+    setClientPublicUrl('https://comfort-trips-reid-browser.trycloudflare.com');
+    expect(fs.existsSync(path.join(tmp, '.vs-v2-client-public-url'))).toBe(true);
+    const cleared = clearClientPublicUrl({ onlyTryCloudflare: true });
+    expect(cleared.cleared).toBe(true);
+    expect(process.env.CLIENT_PUBLIC_URL || '').toBe('');
+    expect(fs.existsSync(path.join(tmp, '.vs-v2-client-public-url'))).toBe(false);
+    expect(resolveClientPublicUrl()).toBe('http://127.0.0.1:5174');
+  });
+
+  it('does not clear stable non-trycloudflare URL when onlyTryCloudflare', () => {
+    setClientPublicUrl('https://clients.example.com');
+    const cleared = clearClientPublicUrl({ onlyTryCloudflare: true });
+    expect(cleared.cleared).toBe(false);
+    expect(resolveClientPublicUrl()).toBe('https://clients.example.com');
   });
 });

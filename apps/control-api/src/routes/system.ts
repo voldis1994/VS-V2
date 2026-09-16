@@ -12,7 +12,9 @@ import {
 import { runPaperPreflight } from '../services/paperPreflight.js';
 import {
   getClientWebPublicState,
+  getClientWebPublicStateProbed,
   setClientPublicUrl,
+  clearClientPublicUrl,
 } from '../services/clientPublicUrl.js';
 
 function liveEnabled(): boolean {
@@ -95,6 +97,25 @@ export async function registerSystemRoutes(
       brain_feed: getBrainFeedStatus(),
       pipeline_bridge: getPipelineBridgeStatus(),
       client_web: getClientWebPublicState(),
+      hints: [
+        ...(capitalMarkets <= 0
+          ? [
+              capitalSenders <= 0
+                ? 'capital_markets=0 and no Capital connections — Clients → attach Capital API key, then PULL MARKETS'
+                : 'capital_markets=0 — Clients → PULL EMPTY / PULL MARKETS',
+            ]
+          : []),
+        ...(!getBrainFeedStatus().connected
+          ? [
+              'market_core UNKNOWN — keep VS-MarketCore window open (LIVE.bat). live_entries_allowed stays false until brain feed connects.',
+            ]
+          : []),
+        ...(getClientWebPublicState().is_public
+          ? []
+          : [
+              'No public Cloudflare URL — keep VS-Cloudflare open; Clients → REFRESH URL → COPY URL for iPhone.',
+            ]),
+      ],
     };
   });
 
@@ -151,7 +172,7 @@ export async function registerSystemRoutes(
   app.get('/api/system/preflight', async () => runPaperPreflight());
 
   /** Public Client Web homepage — copy/send to clients; update when tunnel/domain changes. */
-  app.get('/api/system/client-web', async () => getClientWebPublicState());
+  app.get('/api/system/client-web', async () => getClientWebPublicStateProbed());
 
   app.put('/api/system/client-web', async (request, reply) => {
     const body = (request.body || {}) as { url?: string };
@@ -159,7 +180,20 @@ export async function registerSystemRoutes(
     if (!result.ok) {
       return reply.code(400).send({ error: result.error, message: result.error });
     }
-    return getClientWebPublicState();
+    return getClientWebPublicStateProbed();
+  });
+
+  /** Clear dead trycloudflare / public URL (iPhone Safari "server can't be found"). */
+  app.delete('/api/system/client-web', async () => {
+    const result = clearClientPublicUrl();
+    const state = await getClientWebPublicStateProbed();
+    return { ...state, cleared: result.cleared, previous: result.previous };
+  });
+
+  app.post('/api/system/client-web/clear', async () => {
+    const result = clearClientPublicUrl();
+    const state = await getClientWebPublicStateProbed();
+    return { ...state, cleared: result.cleared, previous: result.previous };
   });
 
   app.post('/api/system/runtime-mode', async (request, reply) => {

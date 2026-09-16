@@ -555,9 +555,10 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       success: result.failed.length === 0,
       ...result,
       message:
-        result.attempted === 0
+        result.note ||
+        (result.attempted === 0
           ? 'No empty Capital catalogs found.'
-          : `Pulled ${result.succeeded}/${result.attempted} empty catalogs (${result.total_markets} markets).`,
+          : `Pulled ${result.succeeded}/${result.attempted} empty catalogs (${result.total_markets} markets).`),
     };
   });
 

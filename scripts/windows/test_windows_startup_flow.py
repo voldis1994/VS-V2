@@ -329,6 +329,8 @@ def test_live_flow() -> list[str]:
             "falling back",
             "Stay-alive",
             "Restarting tunnel",
+            "hostname is now DEAD",
+            "client-web/clear",
         ],
         "run-cloudflared-live.ps1",
     )

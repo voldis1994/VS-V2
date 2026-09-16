@@ -389,10 +389,22 @@ async function readCatalogPulse(epic: string): Promise<SenderRead> {
     );
     const latency_ms = Date.now() - t0;
     if (rows.length === 0) {
+      // Distinguish empty catalog vs missing epic
+      let catalogCount = 0;
+      try {
+        const c = await pool.query(`SELECT COUNT(*)::int AS n FROM capital_markets`);
+        catalogCount = Number(c.rows[0]?.n || 0);
+      } catch {
+        catalogCount = 0;
+      }
+      const last_error =
+        catalogCount === 0
+          ? 'capital_markets empty — Clients → attach Capital + PULL MARKETS'
+          : 'Epic not in capital_markets — pull markets / pick catalog epic';
       touchHealth(CATALOG_ID, {
         status: 'ERROR',
         ok: false,
-        last_error: 'Epic not in capital_markets — pull markets first',
+        last_error,
         latency_ms,
       });
       return {
@@ -408,7 +420,10 @@ async function readCatalogPulse(epic: string): Promise<SenderRead> {
         market_status: 'MISSING',
         source_time: null,
         latency_ms,
-        detail: 'Epic not found in local Capital catalog. Trading → Pull ALL Capital.com markets.',
+        detail:
+          catalogCount === 0
+            ? 'Local Capital catalog is empty. Clients → attach Capital API key → PULL MARKETS (or PULL EMPTY).'
+            : 'Epic not found in local Capital catalog. Clients → PULL MARKETS for that client.',
       };
     }
 
