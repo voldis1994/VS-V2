@@ -432,6 +432,8 @@ if (-not $DryRun) {
 
 $dashUrl = Resolve-DashboardUrl
 $controlUrl = ($dashUrl.TrimEnd('/') + '/control')
+# Always probe LOCAL gateway for health - never a stale trycloudflare.com from a previous run.
+$clientLocalUrl = Resolve-ClientWebLocalUrl
 $clientUrl = Resolve-ClientWebUrl
 if (-not $DryRun) {
     Write-Step 'Waiting for Dashboard'
@@ -440,25 +442,30 @@ if (-not $DryRun) {
     } else {
         Write-Ok "Dashboard up $dashUrl"
     }
-    Write-Step 'Waiting for Client Web gateway'
-    if (-not (Wait-HttpOk -Url $clientUrl -Attempts 40 -DelayMs 500 -Label 'Client Web :5174')) {
-        Write-Warn "Client Web not responding yet at $clientUrl (check VS-ClientWeb / logs\client-web.live.log)"
+    Write-Step 'Waiting for Client Web gateway (local)'
+    if (-not (Wait-HttpOk -Url $clientLocalUrl -Attempts 40 -DelayMs 500 -Label 'Client Web :5174')) {
+        Write-Warn "Client Web not responding yet at $clientLocalUrl (check VS-ClientWeb / logs\client-web.live.log)"
     } else {
-        Write-Ok "Client Web up $clientUrl"
+        Write-Ok "Client Web up $clientLocalUrl"
     }
     if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 5 -DelayMs 500 -Label 'Control API recheck' -Quiet)) {
         Write-LogTail -Path $apiLog -Lines 80
         throw "Control API died after start. See VS-ControlAPI window / $apiLog. Or run Restart-ControlAPI.bat"
     }
 
-    # Public HTTPS for remote clients - auto Cloudflare quick tunnel (shows URL on Clients page).
-    Write-Step 'Public Cloudflare URL for clients'
-    $publicUrl = Start-ClientWebCloudflareTunnel -Root $Root -DryRun:$DryRun
+    # Public HTTPS for remote clients - optional; must not abort LIVE.
+    Write-Step 'Public Cloudflare URL for clients (optional)'
+    $publicUrl = $null
+    try {
+        $publicUrl = Start-ClientWebCloudflareTunnel -Root $Root -DryRun:$DryRun
+    } catch {
+        Write-Warn ("Cloudflare start failed - LIVE continues locally: {0}" -f $_.Exception.Message)
+    }
     if ($publicUrl) {
         $clientUrl = ($publicUrl.TrimEnd('/') + '/')
         Write-Ok "Clients copy URL: $clientUrl"
     } else {
-        Write-Warn 'No public Cloudflare URL yet - Control Panel Clients shows local :5174 until you SAVE a tunnel URL'
+        Write-Warn 'No public Cloudflare URL yet - Control Panel / local :5174 still work. Paste tunnel URL on Clients if needed.'
     }
 }
 

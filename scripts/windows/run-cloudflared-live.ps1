@@ -1,5 +1,6 @@
 # VS-V2 Cloudflare quick tunnel runner (ASCII-only for Windows PowerShell 5.1).
 # Shows trycloudflare.com URL in this window, writes marker, pushes Control API.
+# Optional public HTTPS only - failures here must NEVER abort LIVE.bat.
 param(
     [Parameter(Mandatory = $true)][string]$RepoRoot,
     [Parameter(Mandatory = $true)][string]$CloudflaredExe,
@@ -8,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$Host.UI.RawUI.WindowTitle = 'VS-Cloudflare'
+try { $Host.UI.RawUI.WindowTitle = 'VS-Cloudflare' } catch { }
 Set-Location -LiteralPath $RepoRoot
 $env:VS_V2_ROOT = $RepoRoot
 
@@ -30,30 +31,19 @@ Write-Host '  iPhone: open the https URL (not 127.0.0.1). Keep this window open.
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host ''
 
-if (Test-Path -LiteralPath $LogPath) {
-    Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
-}
-
 $rx = [regex]'https://[a-zA-Z0-9.-]+\.trycloudflare\.com'
-$found = $null
+$script:FoundUrl = $null
 $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
 
 function Save-PublicUrl([string]$Url) {
     $clean = $Url.Trim().TrimEnd('/')
-    Set-Content -LiteralPath $marker -Value "$clean`n" -Encoding utf8
-    Set-Content -LiteralPath $urlTxt -Value "$clean`n" -Encoding utf8
-    $env:CLIENT_PUBLIC_URL = $clean
     try {
-        $origin = ([Uri]$clean).GetLeftPart([UriPartial]::Authority)
-        $parts = @()
-        if ($env:CLIENT_CORS_ORIGIN) {
-            $parts = @($env:CLIENT_CORS_ORIGIN.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-        }
-        if (-not ($parts | Where-Object { $_.ToLowerInvariant() -eq $origin.ToLowerInvariant() })) {
-            $parts += $origin
-            $env:CLIENT_CORS_ORIGIN = ($parts -join ',')
-        }
-    } catch { }
+        Set-Content -LiteralPath $marker -Value "$clean`n" -Encoding utf8
+        Set-Content -LiteralPath $urlTxt -Value "$clean`n" -Encoding utf8
+    } catch {
+        Write-Host "[WARN] Could not write marker: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    $env:CLIENT_PUBLIC_URL = $clean
 
     Write-Host ''
     Write-Host '============================================================' -ForegroundColor Green
@@ -79,26 +69,102 @@ function Save-PublicUrl([string]$Url) {
     }
 }
 
-# http2 + IPv4: Safari/iOS often fails on QUIC/HTTP3 race to trycloudflare.com
-& $CloudflaredExe tunnel --no-autoupdate --protocol http2 --edge-ip-version 4 --url $TargetUrl 2>&1 | ForEach-Object {
-    $line = "$_"
-    Add-Content -LiteralPath $LogPath -Value $line -Encoding utf8
-    Write-Host $line
-    if (-not $found) {
-        $m = $rx.Match($line)
-        if ($m.Success) {
-            $found = $m.Value.TrimEnd('/')
-            Save-PublicUrl -Url $found
-        }
+function Receive-CloudflaredLine([string]$Line) {
+    if ([string]::IsNullOrWhiteSpace($Line)) { return }
+    Write-Host $Line
+    if ($script:FoundUrl) { return }
+    $m = $rx.Match($Line)
+    if ($m.Success) {
+        $script:FoundUrl = $m.Value.TrimEnd('/')
+        Save-PublicUrl -Url $script:FoundUrl
     }
 }
 
-$rc = $LASTEXITCODE
-Add-Content -LiteralPath $LogPath -Value ("[{0}] cloudflared exited code={1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $rc)
+function Invoke-CloudflaredAttempt([string[]]$ExtraArgs) {
+    if (Test-Path -LiteralPath $LogPath) {
+        Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType File -Path $LogPath -Force | Out-Null
+
+    $argLine = (@('tunnel', '--no-autoupdate') + $ExtraArgs + @('--url', $TargetUrl)) -join ' '
+    # Quote exe path for cmd
+    $exeQ = '"' + $CloudflaredExe + '"'
+    $cmd = "($exeQ $argLine) 1>> `"$LogPath`" 2>&1"
+    Write-Host ("Running: {0} {1}" -f $CloudflaredExe, $argLine) -ForegroundColor DarkCyan
+
+    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $cmd) `
+        -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
+
+    $reader = $null
+    try {
+        $reader = [System.IO.File]::Open($LogPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $sr = New-Object System.IO.StreamReader($reader)
+        while (-not $p.HasExited) {
+            while (-not $sr.EndOfStream) {
+                Receive-CloudflaredLine -Line $sr.ReadLine()
+            }
+            Start-Sleep -Milliseconds 400
+        }
+        Start-Sleep -Milliseconds 300
+        while (-not $sr.EndOfStream) {
+            Receive-CloudflaredLine -Line $sr.ReadLine()
+        }
+        $sr.Close()
+    } catch {
+        Write-Host "[WARN] log reader: $($_.Exception.Message)" -ForegroundColor Yellow
+        try {
+            Get-Content -LiteralPath $LogPath -ErrorAction SilentlyContinue | ForEach-Object { Receive-CloudflaredLine -Line "$_" }
+        } catch { }
+    } finally {
+        try { if ($reader) { $reader.Dispose() } } catch { }
+    }
+
+    $code = 1
+    try { $code = [int]$p.ExitCode } catch { $code = 1 }
+    return $code
+}
+
+$attempts = @(
+    ,@( '--protocol', 'http2', '--edge-ip-version', '4' ),
+    ,@( '--protocol', 'http2' ),
+    ,@()
+)
+
+$rc = 1
+foreach ($extra in $attempts) {
+    if ($script:FoundUrl) { break }
+    $label = if ($extra.Count -gt 0) { ($extra -join ' ') } else { '(default)' }
+    Write-Host "Attempt: $label" -ForegroundColor Cyan
+    $rc = Invoke-CloudflaredAttempt -ExtraArgs $extra
+    if ($script:FoundUrl) { break }
+
+    $tail = ''
+    if (Test-Path -LiteralPath $LogPath) {
+        $tail = ((Get-Content -LiteralPath $LogPath -Tail 20 -ErrorAction SilentlyContinue) -join ' ')
+    }
+    if ($extra.Count -gt 0 -and ($tail -match 'unknown flag|invalid argument|incorrect usage|not a valid|Unrecognized')) {
+        Write-Host '[WARN] flags rejected - falling back' -ForegroundColor Yellow
+        continue
+    }
+    if ($extra.Count -gt 0 -and $rc -ne 0) {
+        Write-Host "[WARN] exit=$rc - falling back" -ForegroundColor Yellow
+        continue
+    }
+    break
+}
+
+# If URL was found, cloudflared may have exited (failure) or still running via cmd /c finished.
+# For a healthy tunnel cmd /c blocks until cloudflared exits - so when we get URL and then
+# process still runs, Invoke-CloudflaredAttempt only returns after tunnel ends.
+# That is intended: this window stays alive with the tunnel.
+
+Add-Content -LiteralPath $LogPath -Value ("[{0}] finished code={1} url={2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $rc, $script:FoundUrl) -ErrorAction SilentlyContinue
 Write-Host ''
-Write-Host "[VS-Cloudflare] exited with code $rc" -ForegroundColor Red
-if (-not $found) {
-    Write-Host 'No trycloudflare.com URL was detected. Check the log file above.' -ForegroundColor Yellow
+if ($script:FoundUrl) {
+    Write-Host "[VS-Cloudflare] tunnel session ended. URL was: $($script:FoundUrl)" -ForegroundColor Yellow
+} else {
+    Write-Host "[VS-Cloudflare] no public URL (code=$rc). LIVE can still run on localhost." -ForegroundColor Red
+    Write-Host "Log: $LogPath" -ForegroundColor Yellow
 }
 Write-Host 'Press any key to close...'
 try { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch { Start-Sleep -Seconds 30 }

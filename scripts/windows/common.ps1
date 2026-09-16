@@ -871,8 +871,15 @@ function Resolve-DashboardUrl {
     return 'http://127.0.0.1:5173'
 }
 
+function Resolve-ClientWebLocalUrl {
+    $port = if ($env:CLIENT_PUBLIC_PORT -and $env:CLIENT_PUBLIC_PORT -match '^\d+$') {
+        $env:CLIENT_PUBLIC_PORT
+    } else { '5174' }
+    return ('http://127.0.0.1:{0}/' -f $port)
+}
+
 function Resolve-ClientWebUrl {
-    # Prefer public Cloudflare / CLIENT_PUBLIC_URL when present.
+    # Prefer public Cloudflare / CLIENT_PUBLIC_URL when present (for display / copy).
     $marker = Join-Path (Get-Location) '.vs-v2-client-public-url'
     if ($env:VS_V2_ROOT) {
         $m2 = Join-Path $env:VS_V2_ROOT '.vs-v2-client-public-url'
@@ -885,10 +892,7 @@ function Resolve-ClientWebUrl {
     if ($env:CLIENT_PUBLIC_URL -and "$($env:CLIENT_PUBLIC_URL)".Trim() -match '^https?://') {
         return ($env:CLIENT_PUBLIC_URL.Trim().TrimEnd('/') + '/')
     }
-    $port = if ($env:CLIENT_PUBLIC_PORT -and $env:CLIENT_PUBLIC_PORT -match '^\d+$') {
-        $env:CLIENT_PUBLIC_PORT
-    } else { '5174' }
-    return ('http://127.0.0.1:{0}/' -f $port)
+    return (Resolve-ClientWebLocalUrl)
 }
 
 function Write-ClientPublicUrlMarker {
@@ -944,8 +948,10 @@ function Start-ClientWebCloudflareTunnel {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [switch]$DryRun,
-        [int]$WaitSeconds = 90
+        [int]$WaitSeconds = 45
     )
+    # Soft-fail: Cloudflare must never abort LIVE.bat.
+    try {
     if ($env:SKIP_CLOUDFLARE -eq '1' -or $env:VS_SKIP_CLOUDFLARE -eq '1') {
         Write-Warn 'SKIP_CLOUDFLARE=1 - not starting cloudflared (paste URL on Control Panel Clients)'
         return $null
@@ -987,20 +993,20 @@ function Start-ClientWebCloudflareTunnel {
         return $null
     }
 
-    # Stop previous LIVE tunnel if pid file present
+    # Stop previous LIVE tunnel runner / leftover cloudflared
     if (Test-Path -LiteralPath $cfPidFile) {
         $oldPid = 0
         [void][int]::TryParse((Get-Content -LiteralPath $cfPidFile -Raw).Trim(), [ref]$oldPid)
         if ($oldPid -gt 0) {
             try {
-                $p = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
-                if ($p -and $p.ProcessName -match 'cloudflared') {
-                    Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
-                    Write-Ok "Stopped previous cloudflared pid=$oldPid"
-                }
+                Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                Write-Ok "Stopped previous Cloudflare runner pid=$oldPid"
             } catch { }
         }
     }
+    try {
+        Get-Process -Name 'cloudflared' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch { }
 
     Write-Step "Cloudflare quick tunnel -> Client Web $target"
     Write-Host "  cloudflared: $cf"
@@ -1010,7 +1016,8 @@ function Start-ClientWebCloudflareTunnel {
     # Visible PowerShell window: tees cloudflared output, prints PUBLIC URL, writes marker.
     $runner = Join-Path $PSScriptRoot 'run-cloudflared-live.ps1'
     if (-not (Test-Path -LiteralPath $runner)) {
-        throw "Missing $runner"
+        Write-Warn "Missing $runner - skip Cloudflare tunnel"
+        return $null
     }
     $arg = @(
         '-NoProfile',
@@ -1062,6 +1069,10 @@ function Start-ClientWebCloudflareTunnel {
     Write-Ok "Client public URL: $clean"
     Write-Host '  Copy this for clients (also Control Panel -> Clients -> REFRESH URL -> COPY URL)' -ForegroundColor Yellow
     return $clean
+    } catch {
+        Write-Warn ("Cloudflare tunnel soft-fail (LIVE continues): {0}" -f $_.Exception.Message)
+        return $null
+    }
 }
 
 function Ensure-ClientWebDist {
@@ -1099,13 +1110,25 @@ function Ensure-ClientWebDist {
     $nodeExe = Get-SystemNodeExe
     $npmCli = Get-SystemNpmCliJs
     Push-Location $Root
+    $buildOk = $false
     try {
         & $nodeExe $npmCli run build:client --workspace=@vs-v2/dashboard
         if ($LASTEXITCODE -ne 0) {
             throw "build:client failed (exit $LASTEXITCODE)"
         }
+        $buildOk = $true
+    } catch {
+        if ((Test-Path -LiteralPath $indexHtml) -or (Test-Path -LiteralPath $indexClient)) {
+            Write-Warn ("client web rebuild failed - using existing dist-client. {0}" -f $_.Exception.Message)
+        } else {
+            Pop-Location
+            throw
+        }
     } finally {
-        Pop-Location
+        Pop-Location -ErrorAction SilentlyContinue
+    }
+    if (-not $buildOk) {
+        return $dist
     }
     if ((Test-Path -LiteralPath $indexClient) -and -not (Test-Path -LiteralPath $indexHtml)) {
         Copy-Item -LiteralPath $indexClient -Destination $indexHtml -Force
