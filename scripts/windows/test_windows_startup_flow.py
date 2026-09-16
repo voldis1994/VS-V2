@@ -270,6 +270,9 @@ def test_live_flow() -> list[str]:
             "CLIENT_PUBLIC_PORT",
             "Start-ClientWebCloudflareTunnel",
             "VS-Cloudflare",
+            "Resolve-ClientWebLocalUrl",
+            "Client Web gateway (local)",
+            "optional",
             "live-launch.log",
             "OPERATING_MODE=LIVE",
             "LIVE_TRADING_ENABLED=true",
@@ -293,10 +296,11 @@ def test_live_flow() -> list[str]:
     errs += must_contain(
         runner,
         [
-            "--protocol http2",
-            "--edge-ip-version 4",
+            "'--protocol', 'http2'",
+            "'--edge-ip-version', '4'",
             "CLIENT PUBLIC URL",
             "trycloudflare",
+            "falling back",
         ],
         "run-cloudflared-live.ps1",
     )
