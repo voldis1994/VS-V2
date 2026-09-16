@@ -1,46 +1,54 @@
-# VS-V2 daily Windows launch (V2.bat)
-# ONE double-click starts everything:
+# VS-V2 daily Windows LIVE launch (LIVE.bat)
+# ONE double-click (after typing LIVE) starts everything:
 #   1) postgres + redis (docker)
-#   2) Control API  -> visible CMD window
-#   3) Market Core  -> visible CMD window (--mode PAPER)
+#   2) Control API  -> visible CMD window (OPERATING_MODE=LIVE)
+#   3) Market Core  -> visible CMD window (--mode LIVE, Capital execution bound)
 #   4) Dashboard    -> visible CMD window
 #   5) browser
-# Does NOT reinstall. Does NOT switch SHADOW/LIVE. Does NOT send broker orders.
+# Does NOT reinstall. Real Capital open/close orders allowed when gates pass.
 param(
     [string]$RepoRoot = '',
     [switch]$DryRun,
     [switch]$NoBrowser,
-    [switch]$SkipMarketCore
+    [switch]$SkipMarketCore,
+    [switch]$ConfirmLive
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+
+if (-not $ConfirmLive) {
+    throw 'Refusing LIVE start without -ConfirmLive (run LIVE.bat and type LIVE).'
+}
 
 $Root = Get-VsRoot -Hint $RepoRoot
 Set-Location $Root
 Assert-VsRepoRoot -Root $Root
 
 Write-Host ''
-Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  VS-V2 V2.bat - daily PAPER launch (one-shot)' -ForegroundColor Green
-Write-Host '============================================================' -ForegroundColor Green
+Write-Host '============================================================' -ForegroundColor Red
+Write-Host '  VS-V2 LIVE.bat - daily LIVE launch (Capital orders ON)' -ForegroundColor Red
+Write-Host '============================================================' -ForegroundColor Red
 Write-Host "  Root: $Root"
 Write-Host '  Opens 3 CMD windows: Control API + Market Core + Dashboard'
-Write-Host '  Default mode: PAPER | LIVE trading: OFF | No broker orders'
+Write-Host '  Mode: LIVE | Live trading: ON | Broker open/close: armed'
 Write-Host ''
 
 $marker = Join-Path $Root '.vs-v2-installed'
 if (-not (Test-Path -LiteralPath $marker)) {
     Write-Warn 'Install marker .vs-v2-installed missing - run Install.bat once first'
     if (-not $DryRun -and -not (Test-Path (Join-Path $Root 'node_modules'))) {
-        throw 'node_modules missing. Run Install.bat before V2.bat.'
+        throw 'node_modules missing. Run Install.bat before LIVE.bat.'
     }
 }
 
-if (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Path $Root '.env.paper') }
+if (Test-Path (Join-Path $Root '.env.live')) { Import-DotEnvFile -Path (Join-Path $Root '.env.live') }
+elseif (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Path $Root '.env.paper') }
 elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
-Enforce-PaperFailClosed
-Assert-PaperFailClosed
+
+Enforce-LiveArmed
+Assert-LiveArmed
+Assert-LiveCapitalCredentials
 
 if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKEN') {
     if ($env:ALLOW_INSECURE_ADMIN -ne 'true') {
@@ -50,8 +58,8 @@ if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKE
     Write-Ok 'API_ADMIN_TOKEN loaded for dashboard proxy'
 }
 
-Write-Ok 'Forced OPERATING_MODE=PAPER LIVE_TRADING_ENABLED=false'
-Write-RuntimeModeMarker -Root $Root -Mode 'PAPER'
+Write-Ok 'Forced OPERATING_MODE=LIVE LIVE_TRADING_ENABLED=true'
+Write-RuntimeModeMarker -Root $Root -Mode 'LIVE'
 
 $logs = Join-Path $Root 'logs'
 if (-not (Test-Path -LiteralPath $logs)) {
@@ -67,9 +75,8 @@ try {
     Write-Warn 'Continuing - if DB is already local, API may still work'
 }
 
-# Opens a visible CMD window that stays open (/k). All PAPER services are started this way
-# so one V2.bat double-click is enough - no manual extra terminals.
-function Start-LoggedProcess {
+# Opens a visible CMD window that stays open (/k). LIVE services only.
+function Start-LiveLoggedProcess {
     param(
         [string]$Title,
         [string]$FilePath,
@@ -78,16 +85,17 @@ function Start-LoggedProcess {
         [string]$LogName,
         [hashtable]$ExtraEnv
     )
-    if ($Arguments -match '(?i)--mode\s+(LIVE|SHADOW)') {
-        throw "Safety abort: refused non-PAPER market-core mode: $Arguments"
+    if ($Arguments -match '(?i)--mode\s+PAPER') {
+        throw "Safety abort: LIVE launcher refused PAPER market-core mode: $Arguments"
+    }
+    if ($Arguments -match '(?i)--mode\s+SHADOW') {
+        throw "Safety abort: LIVE launcher refused SHADOW market-core mode: $Arguments"
     }
     if ($DryRun) {
         Write-Host "[dry-run] start $Title :: $FilePath $Arguments"
         return $null
     }
 
-    # Absolute paths only. Bare "npm.cmd" can resolve to a broken project-local shim
-    # that looks for <repo>\node_modules\npm\bin\npm-cli.js (MODULE_NOT_FOUND).
     $exe = $FilePath
     if ($FilePath -match '(?i)^npm(\.cmd)?$') {
         $resolvedNpm = Resolve-Tool -Name 'npm'
@@ -107,7 +115,7 @@ function Start-LoggedProcess {
         [Environment]::SetEnvironmentVariable($k, [string]$ExtraEnv[$k], 'Process')
     }
     $passKeys = @(
-        'OPERATING_MODE', 'LIVE_TRADING_ENABLED',
+        'OPERATING_MODE', 'LIVE_TRADING_ENABLED', 'MARKET_CORE_BRIDGE',
         'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
         'REDIS_URL', 'REDIS_HOST', 'REDIS_PORT',
         'CONTROL_API_HOST', 'CONTROL_API_PORT', 'CONTROL_API_URL',
@@ -115,12 +123,12 @@ function Start-LoggedProcess {
         'API_ADMIN_TOKEN', 'ALLOW_INSECURE_ADMIN',
         'CORS_ORIGIN', 'CLIENT_CORS_ORIGIN', 'TRUST_PROXY',
         'CAPITAL_API_KEY', 'CAPITAL_API_PASSWORD', 'CAPITAL_IDENTIFIER', 'CAPITAL_EPIC', 'CAPITAL_BASE_URL',
-        'MASTER_ENCRYPTION_KEY', 'JWT_SECRET', 'PIPELINE_TOKEN'
+        'MASTER_ENCRYPTION_KEY', 'JWT_SECRET', 'PIPELINE_TOKEN',
+        'VS_V2_MODEL_PATH', 'VS_V2_MODEL_ID', 'VS_V2_MODEL_VERSION'
     )
     $envBlock = @(
-        'set OPERATING_MODE=PAPER',
-        'set LIVE_TRADING_ENABLED=false',
-        # Prevent npm.ps1/npm.cmd from using repo as prefix (MODULE_NOT_FOUND npm-cli.js).
+        'set OPERATING_MODE=LIVE',
+        'set LIVE_TRADING_ENABLED=true',
         'set npm_config_prefix=',
         'set PREFIX='
     )
@@ -135,8 +143,6 @@ function Start-LoggedProcess {
     }
 
     $logPath = Join-Path $logs $LogName
-    # Run via a tiny PS1 so stdout shows in the CMD window AND is appended to the log,
-    # while preserving Node/npm exit codes (plain cmd pipes hide exit 1).
     $exePs = $exe.Replace("'", "''")
     $logPs = $logPath.Replace("'", "''")
     $psScript = @"
@@ -145,19 +151,18 @@ Write-Host "Running: $exe $Arguments"
 & '$exePs' $Arguments 2>&1 | Tee-Object -FilePath '$logPs' -Append
 exit `$LASTEXITCODE
 "@
-    $psFile = Join-Path $env:TEMP ('vs-v2-run-' + $Title + '.ps1')
+    $psFile = Join-Path $env:TEMP ('vs-v2-live-run-' + $Title + '.ps1')
     Set-Content -LiteralPath $psFile -Value $psScript -Encoding ASCII
-    $runLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $psFile + '"' 
-    # Visible CMD: title + live tee-like note. /k keeps window open if process exits.
+    $runLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $psFile + '"'
     $cmd = @"
 @echo off
 title $Title
-color 0A
+color 0C
 cd /d "$WorkingDirectory"
 $($envBlock -join "`r`n")
 echo ============================================================
 echo   $Title
-echo   PAPER only - LIVE trading OFF - no broker orders
+echo   LIVE - Capital broker orders ARMED
 echo   Log: $logPath
 echo   Close this window to stop this service.
 echo ============================================================
@@ -173,9 +178,8 @@ echo Log: $logPath
 echo.
 pause
 "@
-    $launcher = Join-Path $env:TEMP ("vs-v2-" + $Title + '.cmd')
+    $launcher = Join-Path $env:TEMP ("vs-v2-live-" + $Title + '.cmd')
     Set-Content -LiteralPath $launcher -Value $cmd -Encoding ASCII
-    # Normal (visible) so one V2.bat click shows all service windows - no manual CMD needed.
     $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$launcher`"") -WorkingDirectory $WorkingDirectory -PassThru -WindowStyle Normal
     Set-Content -LiteralPath (Join-Path $logs ($LogName + '.pid')) -Value $p.Id
     Write-Ok "$Title CMD opened pid=$($p.Id) log=$logPath"
@@ -183,11 +187,12 @@ pause
     return $p
 }
 
-Write-Step 'Starting all PAPER services (3 CMD windows)'
+Write-Step 'Starting all LIVE services (3 CMD windows)'
 
 # --- 1) Control API via absolute node.exe (never npm) ---
-$apiLog = Join-Path $logs 'control-api.paper.log'
+$apiLog = Join-Path $logs 'control-api.live.log'
 $distJs = Join-Path $Root 'apps\control-api\dist\index.js'
+$envLive = Join-Path $Root '.env.live'
 $envPaper = Join-Path $Root '.env.paper'
 $nodeExe = Get-SystemNodeExe
 if (-not (Test-Path -LiteralPath $distJs)) {
@@ -199,7 +204,6 @@ if (-not (Test-Path -LiteralPath $distJs)) {
         try {
             & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
             if ($LASTEXITCODE -ne 0) { throw "tsc failed for control-api (exit $LASTEXITCODE)" }
-            # tsc does not copy *.sql - migrations must land in dist/db/migrations
             $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
             if (Test-Path -LiteralPath $copyJs) {
                 & $nodeExe $copyJs
@@ -213,19 +217,21 @@ if (-not (Test-Path -LiteralPath $distJs)) {
         } finally { Pop-Location }
     }
     if (-not (Test-Path -LiteralPath $distJs) -and -not $DryRun) {
-        throw 'apps\control-api\dist\index.js missing. Run Install.bat then V2.bat again.'
+        throw 'apps\control-api\dist\index.js missing. Run Install.bat then LIVE.bat again.'
     }
 }
-# Do NOT use --env-file="..." on Windows cmd: quotes become part of the path and Node exits 1 immediately.
-# DOTENV_CONFIG_PATH makes import 'dotenv/config' load .env.paper; bat also sets DB_* from Import-DotEnvFile.
-$nodeArgs = '"' + $distJs + '"'
+
+$dotenvPath = $null
+if (Test-Path -LiteralPath $envLive) { $dotenvPath = $envLive }
+elseif (Test-Path -LiteralPath $envPaper) { $dotenvPath = $envPaper }
+
 $apiExtra = @{
-    OPERATING_MODE         = 'PAPER'
-    LIVE_TRADING_ENABLED   = 'false'
+    OPERATING_MODE         = 'LIVE'
+    LIVE_TRADING_ENABLED   = 'true'
+    MARKET_CORE_BRIDGE     = $(if ($env:MARKET_CORE_BRIDGE) { $env:MARKET_CORE_BRIDGE } else { 'true' })
     CONTROL_API_HOST       = '0.0.0.0'
     CONTROL_API_PORT       = '3000'
 }
-# Windows: force IPv4 loopback for Docker Postgres (localhost -> ::1 breaks API boot).
 if (-not $env:DB_HOST -or $env:DB_HOST -eq 'localhost') {
     $apiExtra['DB_HOST'] = '127.0.0.1'
     $env:DB_HOST = '127.0.0.1'
@@ -234,10 +240,10 @@ if (-not $env:REDIS_HOST -or $env:REDIS_HOST -eq 'localhost') {
     $apiExtra['REDIS_HOST'] = '127.0.0.1'
     $env:REDIS_HOST = '127.0.0.1'
 }
-if (Test-Path -LiteralPath $envPaper) {
-    $apiExtra['DOTENV_CONFIG_PATH'] = $envPaper
+if ($dotenvPath) {
+    $apiExtra['DOTENV_CONFIG_PATH'] = $dotenvPath
 }
-# Ensure SQL migrations exist under dist (tsc never copies *.sql).
+
 $migDist = Join-Path $Root 'apps\control-api\dist\db\migrations'
 $migSrc = Join-Path $Root 'apps\control-api\src\db\migrations'
 if (-not $DryRun -and (Test-Path -LiteralPath $migSrc)) {
@@ -252,19 +258,18 @@ if (-not $DryRun -and (Test-Path -LiteralPath $migSrc)) {
 
 Write-Ok "control-api via node.exe (not npm): $nodeExe"
 Write-Host "  entry: $distJs"
-if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$envPaper" }
+if ($apiExtra.ContainsKey('DOTENV_CONFIG_PATH')) { Write-Host "  env:   DOTENV_CONFIG_PATH=$dotenvPath" }
 
-# Pure CMD launcher for Control API - NEVER PowerShell/$args/npm (npm-cli.js MODULE_NOT_FOUND on Windows).
 $apiEnvLines = @(
-    'set OPERATING_MODE=PAPER',
-    'set LIVE_TRADING_ENABLED=false',
+    'set OPERATING_MODE=LIVE',
+    'set LIVE_TRADING_ENABLED=true',
     'set CONTROL_API_HOST=0.0.0.0',
     'set CONTROL_API_PORT=3000',
     'set npm_config_prefix=',
     'set PREFIX=',
     'set VITE_API_URL='
 )
-foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL')) {
+foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL','MARKET_CORE_BRIDGE','CAPITAL_API_KEY','CAPITAL_API_PASSWORD','CAPITAL_IDENTIFIER','CAPITAL_EPIC','CAPITAL_BASE_URL')) {
     if ($apiExtra.ContainsKey($k)) {
         $apiEnvLines += ('set {0}={1}' -f $k, $apiExtra[$k])
     } else {
@@ -275,18 +280,19 @@ foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HO
 $apiCmd = @"
 @echo off
 title VS-ControlAPI
-color 0A
+color 0C
 cd /d "$Root"
 $($apiEnvLines -join "`r`n")
 echo ============================================================
 echo   VS-ControlAPI
-echo   PAPER only - node.exe ONLY (never npm / npm.ps1)
+echo   LIVE - node.exe ONLY (never npm / npm.ps1)
+echo   OPERATING_MODE=LIVE LIVE_TRADING_ENABLED=true
 echo   node: $nodeExe
 echo   entry: $distJs
 echo   Log: $apiLog
 echo   Close this window to stop Control API.
 echo ============================================================
-echo [%date% %time%] starting VS-ControlAPI>> "$apiLog"
+echo [%date% %time%] starting VS-ControlAPI LIVE>> "$apiLog"
 echo [%date% %time%] exe=$nodeExe>> "$apiLog"
 echo [%date% %time%] entry=$distJs>> "$apiLog"
 echo Starting:
@@ -296,70 +302,66 @@ set "RC=%ERRORLEVEL%"
 echo [%date% %time%] exited VS-ControlAPI code=%RC%>> "$apiLog"
 echo.
 echo [VS-ControlAPI] exited with code %RC%
-echo If log shows npm-cli.js / npm-prefix.js - pull latest main and re-run V2.bat
 echo Log: $apiLog
 pause
 "@
 if ($DryRun) {
-    Write-Host '[dry-run] start VS-ControlAPI via node.exe only'
+    Write-Host '[dry-run] start VS-ControlAPI via node.exe only (LIVE)'
 } else {
-    $apiLauncher = Join-Path $env:TEMP 'vs-v2-VS-ControlAPI-node-only.cmd'
+    $apiLauncher = Join-Path $env:TEMP 'vs-v2-VS-ControlAPI-live-node-only.cmd'
     Set-Content -LiteralPath $apiLauncher -Value $apiCmd -Encoding ASCII
     $apiProc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$apiLauncher`"") -WorkingDirectory $Root -PassThru -WindowStyle Normal
-    Set-Content -LiteralPath (Join-Path $logs 'control-api.paper.log.pid') -Value $apiProc.Id
-    Write-Ok "VS-ControlAPI CMD opened pid=$($apiProc.Id) (node-only)"
+    Set-Content -LiteralPath (Join-Path $logs 'control-api.live.log.pid') -Value $apiProc.Id
+    Write-Ok "VS-ControlAPI CMD opened pid=$($apiProc.Id) (LIVE node-only)"
 }
 
-# --- 2) Market Core (separate CMD) ---
-# Control API uses node-only CMD above (never Start-LoggedProcess / npm).
+# --- 2) Market Core LIVE (CapitalOrderGateway bound) ---
 $exe = Get-MarketCoreExe -Root $Root
 if ($SkipMarketCore) {
     Write-Warn 'SkipMarketCore set - Market Core CMD will not open'
 } elseif (-not $exe -and -not $DryRun) {
     throw 'market-core binary not found. Run Install.bat first.'
 } else {
-    $modeArg = '--mode PAPER'
+    $modeArg = '--mode LIVE'
     $mcPath = if ($exe) { $exe } else { 'market-core.exe' }
-    Start-LoggedProcess -Title 'VS-MarketCore' -FilePath $mcPath -Arguments $modeArg `
-        -WorkingDirectory $Root -LogName 'market-core.paper.log' -ExtraEnv @{
-            OPERATING_MODE       = 'PAPER'
-            LIVE_TRADING_ENABLED = 'false'
+    Start-LiveLoggedProcess -Title 'VS-MarketCore' -FilePath $mcPath -Arguments $modeArg `
+        -WorkingDirectory $Root -LogName 'market-core.live.log' -ExtraEnv @{
+            OPERATING_MODE       = 'LIVE'
+            LIVE_TRADING_ENABLED = 'true'
+            MARKET_CORE_BRIDGE   = $(if ($env:MARKET_CORE_BRIDGE) { $env:MARKET_CORE_BRIDGE } else { 'true' })
         } | Out-Null
-    Write-Ok 'market-core --mode PAPER (no broker order gateway)'
+    Write-Ok 'market-core --mode LIVE (Capital order gateway bound when creds/auth OK)'
 }
 
-# --- 3) Dashboard (separate CMD) ---
-# Dashboard via system npm-cli.js + node.exe (never npm.ps1 / broken prefix).
+# --- 3) Dashboard ---
 $sysNode = Get-SystemNodeExe
 $npmCli = Get-SystemNpmCliJs
-Write-Ok "dashboard via node + system npm-cli.js (bypass npm.ps1 prefix bug)"
+Write-Ok 'dashboard via node + system npm-cli.js (bypass npm.ps1 prefix bug)'
 Write-Host "  node: $sysNode"
 Write-Host "  npm:  $npmCli"
-Start-LoggedProcess -Title 'VS-Dashboard' -FilePath $sysNode `
+Start-LiveLoggedProcess -Title 'VS-Dashboard' -FilePath $sysNode `
     -Arguments ('"{0}" run dev --workspace=@vs-v2/dashboard' -f $npmCli) `
-    -WorkingDirectory $Root -LogName 'dashboard.paper.log' -ExtraEnv @{
-        OPERATING_MODE       = 'PAPER'
-        LIVE_TRADING_ENABLED = 'false'
+    -WorkingDirectory $Root -LogName 'dashboard.live.log' -ExtraEnv @{
+        OPERATING_MODE       = 'LIVE'
+        LIVE_TRADING_ENABLED = 'true'
         npm_config_prefix    = ''
-        # Force same-origin Vite proxy - never hit localhost:3000 (Windows ::1 miss).
         VITE_API_URL         = ''
         API_ADMIN_TOKEN      = $(if ($env:API_ADMIN_TOKEN) { $env:API_ADMIN_TOKEN } else { '' })
     } | Out-Null
 
-Write-Ok 'All service CMD windows launched (Control API + Market Core + Dashboard)'
+Write-Ok 'All LIVE service CMD windows launched (Control API + Market Core + Dashboard)'
 
-# Health waits AFTER all windows are open (one-shot UX).
 $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
 if (-not $DryRun) {
     Write-Step 'Waiting for Control API /health (windows already open)'
     Write-Host "  $apiBase/health"
-    Write-Host '  Watch the VS-ControlAPI window or logs\control-api.paper.log'
+    Write-Host '  Watch the VS-ControlAPI window or logs\control-api.live.log'
     if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label 'Control API /health')) {
         Write-LogTail -Path $apiLog -Lines 60
-        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail (often DB password mismatch). Fix .env.paper DB_* then re-run V2.bat or Restart-ControlAPI.bat."
+        throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail. Fix .env.live DB_* then re-run LIVE.bat or Restart-ControlAPI.bat."
     }
     Write-Ok 'Control API healthy'
-    Invoke-PaperPreflight -Root $Root
+    Invoke-LivePreflight -Root $Root
 }
 
 $dashUrl = Resolve-DashboardUrl
@@ -367,11 +369,10 @@ $controlUrl = ($dashUrl.TrimEnd('/') + '/control')
 if (-not $DryRun) {
     Write-Step 'Waiting for Dashboard'
     if (-not (Wait-HttpOk -Url $dashUrl -Attempts 60 -DelayMs 500 -Label 'Dashboard')) {
-        Write-Warn "Dashboard not responding yet at $dashUrl (check VS-Dashboard window / logs\dashboard.paper.log)"
+        Write-Warn "Dashboard not responding yet at $dashUrl (check VS-Dashboard window / logs\dashboard.live.log)"
     } else {
         Write-Ok "Dashboard up $dashUrl"
     }
-    # Re-check API after dashboard is up - catch silent crash during race.
     if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 5 -DelayMs 500 -Label 'Control API recheck' -Quiet)) {
         Write-LogTail -Path $apiLog -Lines 80
         throw "Control API died after start. See VS-ControlAPI window / $apiLog. Or run Restart-ControlAPI.bat"
@@ -385,22 +386,22 @@ if (-not $NoBrowser -and -not $DryRun) {
     Write-Host "[dry-run] would open browser $controlUrl"
 }
 
-Assert-PaperFailClosed
+Assert-LiveArmed
 
 if (-not $DryRun) {
-    try { Invoke-PaperPreflight -Root $Root } catch { Write-Warn "Final preflight: $($_.Exception.Message)" }
+    try { Invoke-LivePreflight -Root $Root } catch { Write-Warn "Final LIVE preflight: $($_.Exception.Message)" }
 }
 
 Write-Host ''
-Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  PAPER stack running (started by one V2.bat click)' -ForegroundColor Green
-Write-Host '  CMD windows: VS-ControlAPI | VS-MarketCore | VS-Dashboard' -ForegroundColor Green
-Write-Host "  Dashboard: $dashUrl" -ForegroundColor Green
-Write-Host "  Control Panel: $controlUrl" -ForegroundColor Green
-Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Green
-Write-Host '  Mode: PAPER | Live trading: false | Broker orders: forbidden' -ForegroundColor Green
-Write-Host "  Logs: $logs\*.paper.log" -ForegroundColor Green
+Write-Host '============================================================' -ForegroundColor Red
+Write-Host '  LIVE stack running (started by LIVE.bat)' -ForegroundColor Red
+Write-Host '  CMD windows: VS-ControlAPI | VS-MarketCore | VS-Dashboard' -ForegroundColor Red
+Write-Host "  Dashboard: $dashUrl" -ForegroundColor Red
+Write-Host "  Control Panel: $controlUrl" -ForegroundColor Red
+Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Red
+Write-Host '  Mode: LIVE | Live trading: true | Broker orders: ARMED' -ForegroundColor Red
+Write-Host "  Logs: $logs\*.live.log" -ForegroundColor Red
 Write-Host '  Keep the 3 service CMD windows open. Close a window to stop that service.' -ForegroundColor Yellow
-Write-Host '  If Clients shows API unreachable: run Restart-ControlAPI.bat' -ForegroundColor Yellow
-Write-Host '============================================================' -ForegroundColor Green
+Write-Host '  Demote via Control Panel PAPER/SHADOW if you need fail-closed.' -ForegroundColor Yellow
+Write-Host '============================================================' -ForegroundColor Red
 exit 0

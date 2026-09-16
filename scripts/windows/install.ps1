@@ -234,7 +234,8 @@ Write-Ok 'wrote .vs-v2-installed marker'
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  INSTALL COMPLETE - PAPER only, LIVE not started' -ForegroundColor Green
-Write-Host '  Next: double-click V2.bat for daily PAPER launch' -ForegroundColor Green
+Write-Host '  INSTALL COMPLETE - LIVE not auto-started' -ForegroundColor Green
+Write-Host '  Next: LIVE.bat (daily LIVE Capital orders - type LIVE to confirm)' -ForegroundColor Green
+Write-Host '        or V2.bat (PAPER fail-closed, no broker orders)' -ForegroundColor Green
 Write-Host '============================================================' -ForegroundColor Green
 exit 0

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Validate Windows Install.bat / V2.bat startup flows (safety + dry-run simulation).
+"""Validate Windows Install.bat / V2.bat / LIVE.bat startup flows.
 
-Runs on Linux CI without Windows. Does not start LIVE trading or send broker orders.
+Runs on Linux CI without Windows. PAPER launchers stay fail-closed; LIVE.bat is
+gated by typed LIVE + -ConfirmLive (never silent arming).
 """
 from __future__ import annotations
 
@@ -35,9 +36,12 @@ def test_files_exist() -> list[str]:
     for rel in (
         "Install.bat",
         "V2.bat",
+        "LIVE.bat",
         "scripts/windows/common.ps1",
         "scripts/windows/install.ps1",
         "scripts/windows/start-v2.ps1",
+        "scripts/windows/start-live.ps1",
+        "scripts/start-live.sh",
     ):
         if not (ROOT / rel).is_file():
             errs.append(f"missing file: {rel}")
@@ -55,6 +59,7 @@ def test_install_flow() -> list[str]:
             "OPERATING_MODE=PAPER",
             "LIVE_TRADING_ENABLED=false",
             r"scripts\windows\install.ps1",
+            "LIVE.bat",
         ],
         "Install.bat",
     )
@@ -79,6 +84,7 @@ def test_install_flow() -> list[str]:
             "Invoke-MarketCoreBuild",
             "VCPKG_ROOT forced local",
             "Refusing VS bundled vcpkg",
+            "LIVE.bat",
         ],
         "install.ps1",
     )
@@ -87,7 +93,13 @@ def test_install_flow() -> list[str]:
         [
             "Enforce-PaperFailClosed",
             "Assert-PaperFailClosed",
+            "Enforce-LiveArmed",
+            "Assert-LiveArmed",
+            "Assert-LiveCapitalCredentials",
+            "Invoke-LivePreflight",
             "Invoke-PaperPreflight",
+            "Write-RuntimeModeMarker",
+            "Read-RuntimeModeMarker",
             "broker_orders_forbidden",
             "Get-MarketCoreExe",
             "Start-DockerDeps",
@@ -117,7 +129,6 @@ def test_install_flow() -> list[str]:
         "common.ps1",
     )
     if "Resolve-Tool -Name 'docker'" not in common and 'Resolve-Tool -Name "docker"' not in common:
-        # PowerShell single-quoted form
         if "Resolve-Tool -Name 'docker'" not in common:
             errs.append("common.ps1: Start-DockerDeps should Resolve-Tool docker (same PATH bug class as cmake)")
     if "RootIf" in ps1 or "Rootif" in ps1:
@@ -134,7 +145,6 @@ def test_install_flow() -> list[str]:
         ],
         "Install flow",
     )
-    # Regression: Install.bat screenshot — cmake without vcpkg → missing fmt
     if re.search(r"cmake\s+-B\s+\$buildDir\s+-DMR_BUILD_TESTS=OFF", ps1) and "CMAKE_TOOLCHAIN_FILE" not in ps1:
         errs.append("install.ps1: bare cmake -B without CMAKE_TOOLCHAIN_FILE (fmt will be missing on Windows)")
     if "CMAKE_TOOLCHAIN_FILE" not in ps1:
@@ -154,6 +164,7 @@ def test_v2_flow() -> list[str]:
             r"scripts\windows\start-v2.ps1",
             "one-shot",
             "3 CMD windows",
+            "LIVE.bat",
         ],
         "V2.bat",
     )
@@ -189,10 +200,10 @@ def test_v2_flow() -> list[str]:
             "VS-Dashboard",
             "VITE_API_URL",
             "one-shot",
+            "Write-RuntimeModeMarker",
         ],
         "start-v2.ps1",
     )
-    # Daily launcher must not reinstall
     if "RootIf" in ps1 or "Rootif" in ps1:
         errs.append("start-v2.ps1: fused $Rootif typo")
     errs += must_not_match(
@@ -209,6 +220,67 @@ def test_v2_flow() -> list[str]:
     return errs
 
 
+def test_live_flow() -> list[str]:
+    """LIVE.bat must arm Capital execution only after typed LIVE + -ConfirmLive."""
+    bat = read("LIVE.bat")
+    ps1 = read("scripts/windows/start-live.ps1")
+    sh = read("scripts/start-live.sh")
+    errs: list[str] = []
+    errs += must_contain(
+        bat,
+        [
+            "Type LIVE to confirm",
+            r"scripts\windows\start-live.ps1",
+            "-ConfirmLive",
+            "OPERATING_MODE=LIVE",
+            "LIVE_TRADING_ENABLED=true",
+            "3 CMD windows",
+        ],
+        "LIVE.bat",
+    )
+    errs += must_contain(
+        ps1,
+        [
+            "ConfirmLive",
+            "Refusing LIVE start without -ConfirmLive",
+            "Enforce-LiveArmed",
+            "Assert-LiveArmed",
+            "Assert-LiveCapitalCredentials",
+            "--mode LIVE",
+            "Invoke-LivePreflight",
+            "Start-LiveLoggedProcess",
+            "node.exe ONLY",
+            "VS-ControlAPI",
+            "VS-MarketCore",
+            "VS-Dashboard",
+            "OPERATING_MODE=LIVE",
+            "LIVE_TRADING_ENABLED=true",
+            "Write-RuntimeModeMarker",
+            "Safety abort: LIVE launcher refused PAPER",
+        ],
+        "start-live.ps1",
+    )
+    errs += must_contain(
+        sh,
+        [
+            "CONFIRM_LIVE",
+            "Type LIVE to confirm",
+            "OPERATING_MODE=LIVE",
+            "LIVE_TRADING_ENABLED=true",
+            "--mode LIVE",
+            "CAPITAL_API_KEY",
+        ],
+        "start-live.sh",
+    )
+    if "ConfirmLive" not in ps1:
+        errs.append("start-live.ps1: missing ConfirmLive gate")
+    if re.search(r"(?m)^\s*set\s+OPERATING_MODE=LIVE\b", bat) and "Type LIVE" not in bat:
+        errs.append("LIVE.bat: sets LIVE without typed confirm prompt")
+    if "--mode PAPER" in ps1 and "refused PAPER" not in ps1:
+        errs.append("start-live.ps1: mentions PAPER without refusal")
+    return errs
+
+
 def simulate_install_dry_run() -> list[str]:
     errs: list[str] = []
     with tempfile.TemporaryDirectory() as td:
@@ -220,7 +292,6 @@ def simulate_install_dry_run() -> list[str]:
         (root / "apps" / "control-api" / "package.json").write_text("{}", encoding="utf-8")
         (root / "apps" / "dashboard" / "package.json").write_text("{}", encoding="utf-8")
 
-        # Mirror Enforce-PaperFailClosed even if .env had LIVE
         env = {"OPERATING_MODE": "LIVE", "LIVE_TRADING_ENABLED": "true"}
         env["OPERATING_MODE"] = "PAPER"
         env["LIVE_TRADING_ENABLED"] = "false"
@@ -236,7 +307,6 @@ def simulate_install_dry_run() -> list[str]:
         if "operating_mode=PAPER" not in text or "live_trading_enabled=false" not in text:
             errs.append("simulate install: bad marker contents")
 
-        # Install must not launch services / LIVE
         install_ps1 = read("scripts/windows/install.ps1")
         if re.search(r"Start-LoggedProcess|Start-Process.*market-core", install_ps1):
             errs.append("simulate install: install.ps1 starts market-core process")
@@ -266,27 +336,44 @@ def simulate_v2_dry_run() -> list[str]:
     if not any("dashboard" in x for x in planned):
         errs.append("simulate V2: dashboard start missing")
 
-    # Same refusal regex as start-v2.ps1
     if not re.search(r"(?i)--mode\s+(LIVE|SHADOW)", "--mode LIVE"):
         errs.append("simulate V2: refusal regex broken")
     if re.search(r"(?i)--mode\s+(LIVE|SHADOW)", "--mode PAPER"):
         errs.append("simulate V2: refusal regex false-positive on PAPER")
 
-    # Script itself must refuse LIVE args
     ps1 = read("scripts/windows/start-v2.ps1")
     if "refused non-PAPER market-core mode" not in ps1:
         errs.append("simulate V2: missing non-PAPER refusal message")
     return errs
 
 
+def simulate_live_dry_run() -> list[str]:
+    errs: list[str] = []
+    planned = [
+        "control-api OPERATING_MODE=LIVE",
+        "market-core --mode LIVE",
+        "dashboard OPERATING_MODE=LIVE",
+    ]
+    if not any("--mode LIVE" in x for x in planned):
+        errs.append("simulate LIVE: market-core LIVE missing")
+    ps1 = read("scripts/windows/start-live.ps1")
+    if "Refusing LIVE start without -ConfirmLive" not in ps1:
+        errs.append("simulate LIVE: missing ConfirmLive refusal")
+    if "Assert-LiveCapitalCredentials" not in ps1:
+        errs.append("simulate LIVE: missing Capital credential assert")
+    if "refused PAPER" not in ps1:
+        errs.append("simulate LIVE: missing PAPER refusal in LIVE launcher")
+    return errs
+
+
 def test_no_live_order_paths() -> list[str]:
+    """PAPER launchers must never start market-core LIVE or place orders."""
     errs: list[str] = []
     blob = "\n".join(
         read(p)
         for p in (
             "Install.bat",
             "V2.bat",
-            "scripts/windows/common.ps1",
             "scripts/windows/install.ps1",
             "scripts/windows/start-v2.ps1",
         )
@@ -299,7 +386,11 @@ def test_no_live_order_paths() -> list[str]:
         r"--mode\s+LIVE",
     ):
         if re.search(pat, blob, flags=re.I):
-            errs.append(f"launcher blob matches dangerous pattern {pat!r}")
+            errs.append(f"PAPER launcher blob matches dangerous pattern {pat!r}")
+    common = read("scripts/windows/common.ps1")
+    # Helpers may mention market-core --mode LIVE in warnings; must not Start-Process it.
+    if re.search(r"Start-Process.*--mode\s+LIVE|Arguments\s*=\s*'--mode LIVE'", common):
+        errs.append("common.ps1 must not start market-core --mode LIVE")
     return errs
 
 
@@ -309,6 +400,8 @@ def test_vs_bat_quarantined() -> list[str]:
     errs: list[str] = []
     if "QUARANTINED" not in bat:
         errs.append("VS.bat: missing QUARANTINED marker")
+    if "LIVE.bat" not in bat:
+        errs.append("VS.bat: must point operators to LIVE.bat")
     if "V2.bat" not in bat:
         errs.append("VS.bat: must point operators to V2.bat")
     for pat in (
@@ -320,7 +413,6 @@ def test_vs_bat_quarantined() -> list[str]:
     ):
         if re.search(pat, bat, flags=re.IGNORECASE):
             errs.append(f"VS.bat: forbidden live/remote pattern {pat!r}")
-    # upsert_env LIVE style
     if re.search(r"upsert_env\s+OPERATING_MODE\s+LIVE", bat, re.I):
         errs.append("VS.bat: still upserts OPERATING_MODE LIVE")
     if re.search(r"upsert_env\s+LIVE_TRADING_ENABLED\s+true", bat, re.I):
@@ -328,14 +420,15 @@ def test_vs_bat_quarantined() -> list[str]:
     return errs
 
 
-
 def test_ps1_ascii_only() -> list[str]:
-    """Windows PowerShell 5.1 mangles UTF-8 em-dashes and breaks strings (Install.bat parse errors)."""
+    """Windows PowerShell 5.1 mangles UTF-8 em-dashes and breaks strings."""
     errs: list[str] = []
     for rel in (
         "scripts/windows/common.ps1",
         "scripts/windows/install.ps1",
         "scripts/windows/start-v2.ps1",
+        "scripts/windows/start-live.ps1",
+        "scripts/windows/restart-control-api.ps1",
     ):
         data = (ROOT / rel).read_bytes()
         if any(b > 127 for b in data):
@@ -345,11 +438,13 @@ def test_ps1_ascii_only() -> list[str]:
 
 def test_vcpkg_baseline() -> list[str]:
     import json
+
     errs: list[str] = []
     data = json.loads((ROOT / "vcpkg.json").read_text(encoding="utf-8"))
     if not data.get("builtin-baseline"):
         errs.append("vcpkg.json missing builtin-baseline (required by vcpkg manifests)")
     return errs
+
 
 def main() -> int:
     os.environ["OPERATING_MODE"] = "PAPER"
@@ -359,8 +454,10 @@ def main() -> int:
         ("files", test_files_exist),
         ("install_flow", test_install_flow),
         ("v2_flow", test_v2_flow),
+        ("live_flow", test_live_flow),
         ("simulate_install", simulate_install_dry_run),
         ("simulate_v2", simulate_v2_dry_run),
+        ("simulate_live", simulate_live_dry_run),
         ("no_live_orders", test_no_live_order_paths),
         ("vs_bat_quarantined", test_vs_bat_quarantined),
         ("ps1_ascii_only", test_ps1_ascii_only),
@@ -380,7 +477,7 @@ def main() -> int:
     if failed:
         print(f"\n{failed} suite(s) failed")
         return 1
-    print("\nAll Windows startup flow checks passed (PAPER fail-closed, no LIVE orders)")
+    print("\nAll Windows startup flow checks passed (PAPER fail-closed + gated LIVE.bat)")
     return 0
 
 

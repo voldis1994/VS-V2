@@ -59,6 +59,8 @@ if not "%RC%"=="0" (
 )
 
 echo.
-echo Install finished. Start daily PAPER stack with V2.bat
+echo Install finished.
+echo   Daily LIVE Capital: LIVE.bat  (type LIVE to confirm)
+echo   PAPER fail-closed:  V2.bat
 pause
 exit /b 0

@@ -21,11 +21,14 @@ dist-client/
 # Environment
 .env
 .env.paper
+.env.live
 !.env.example
 !.env.paper.example
+!.env.live.example
 
-# Windows install marker
+# Windows install / runtime markers
 .vs-v2-installed
+.vs-v2-runtime-mode
 
 # Data
 data/raw/**

@@ -55,12 +55,20 @@ cmake --build build -j
 ./build/apps/market-core/market-core --mode PAPER
 ```
 
-LIVE bridge (Capital → control-api):
+LIVE bridge (Capital → control-api, real open/close):
 
 ```bash
-export PIPELINE_TOKEN=... CAPITAL_API_KEY=... MARKET_CORE_BRIDGE=1
-./build/apps/market-core/market-core --mode LIVE --bridge
+# Linux / macOS (type LIVE when prompted, or CONFIRM_LIVE=LIVE)
+./scripts/start-live.sh
+
+# Or manually:
+export OPERATING_MODE=LIVE LIVE_TRADING_ENABLED=true MARKET_CORE_BRIDGE=1
+export PIPELINE_TOKEN=... CAPITAL_API_KEY=... CAPITAL_API_PASSWORD=... CAPITAL_IDENTIFIER=...
+./build/apps/market-core/market-core --mode LIVE
 ```
+
+Windows daily LIVE (Capital orders): double-click `LIVE.bat` and type `LIVE`.
+PAPER fail-closed fallback: `V2.bat`. First-time setup: `Install.bat`.
 
 ## Scripts
 

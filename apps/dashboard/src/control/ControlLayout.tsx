@@ -176,9 +176,9 @@ export function ControlLayout() {
               <div>
                 <strong>Control API nav pieejams (:3000).</strong> Bez API klientus pievienot nevar.
                 <div className="cp-muted" style={{ marginTop: '0.35rem' }}>
-                  1) Pārbaudi logu <code>VS-ControlAPI</code> / <code>logs\control-api.paper.log</code>
+                  1) Pārbaudi logu <code>VS-ControlAPI</code> / <code>logs\control-api.live.log</code>
                   <br />
-                  2) Palaid <code>Restart-ControlAPI.bat</code> (vai visu <code>V2.bat</code>)
+                  2) Palaid <code>Restart-ControlAPI.bat</code> (vai visu <code>LIVE.bat</code>)
                   <br />
                   3) Docker Desktop jābūt ieslēgtam (Postgres)
                 </div>

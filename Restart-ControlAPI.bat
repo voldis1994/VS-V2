@@ -10,6 +10,7 @@ echo.
 echo ============================================================
 echo   Restart-ControlAPI.bat
 echo   Restarts Control API on :3000 without killing Dashboard
+echo   Mode AUTO: reads .vs-v2-runtime-mode (LIVE after LIVE.bat)
 echo ============================================================
 echo.
 
