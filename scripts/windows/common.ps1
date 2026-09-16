@@ -235,6 +235,20 @@ function Find-ToolOnDisk {
             "${env:ProgramFiles}\Docker\Docker\resources\bin",
             "${env:ProgramFiles}\Docker\Docker\resources"
         )
+    } elseif ($Name -match '^(cloudflared)(\.exe)?$') {
+        $dirs += @(
+            "${env:ProgramFiles}\cloudflared",
+            "${env:LOCALAPPDATA}\cloudflared",
+            "${env:ProgramFiles(x86)}\cloudflared",
+            "${env:LOCALAPPDATA}\Microsoft\WinGet\Links",
+            "${env:LOCALAPPDATA}\Microsoft\WinGet\Packages"
+        )
+        # winget often installs under Packages\Cloudflare.cloudflared_*\cloudflared.exe
+        $pkgRoot = "${env:LOCALAPPDATA}\Microsoft\WinGet\Packages"
+        if (Test-Path -LiteralPath $pkgRoot) {
+            Get-ChildItem -LiteralPath $pkgRoot -Directory -Filter 'Cloudflare.cloudflared*' -ErrorAction SilentlyContinue |
+                ForEach-Object { $dirs += $_.FullName }
+        }
     }
 
     foreach ($dir in ($dirs | Select-Object -Unique)) {
@@ -858,10 +872,194 @@ function Resolve-DashboardUrl {
 }
 
 function Resolve-ClientWebUrl {
+    # Prefer public Cloudflare / CLIENT_PUBLIC_URL when present.
+    $marker = Join-Path (Get-Location) '.vs-v2-client-public-url'
+    if ($env:VS_V2_ROOT) {
+        $m2 = Join-Path $env:VS_V2_ROOT '.vs-v2-client-public-url'
+        if (Test-Path -LiteralPath $m2) { $marker = $m2 }
+    }
+    if (Test-Path -LiteralPath $marker) {
+        $fromFile = (Get-Content -LiteralPath $marker -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($fromFile -match '^https?://') { return ($fromFile.TrimEnd('/') + '/') }
+    }
+    if ($env:CLIENT_PUBLIC_URL -and "$($env:CLIENT_PUBLIC_URL)".Trim() -match '^https?://') {
+        return ($env:CLIENT_PUBLIC_URL.Trim().TrimEnd('/') + '/')
+    }
     $port = if ($env:CLIENT_PUBLIC_PORT -and $env:CLIENT_PUBLIC_PORT -match '^\d+$') {
         $env:CLIENT_PUBLIC_PORT
     } else { '5174' }
     return ('http://127.0.0.1:{0}/' -f $port)
+}
+
+function Write-ClientPublicUrlMarker {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Url
+    )
+    $clean = $Url.Trim().TrimEnd('/')
+    if ($clean -notmatch '^https?://') { throw "Invalid client public URL: $Url" }
+    $marker = Join-Path $Root '.vs-v2-client-public-url'
+    Set-Content -LiteralPath $marker -Value "$clean`n" -Encoding utf8
+    $env:CLIENT_PUBLIC_URL = $clean
+    # Ensure CORS allows the tunnel origin
+    try {
+        $origin = ([Uri]$clean).GetLeftPart([UriPartial]::Authority)
+        $parts = @()
+        if ($env:CLIENT_CORS_ORIGIN) {
+            $parts = @($env:CLIENT_CORS_ORIGIN.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        }
+        if (-not ($parts | Where-Object { $_.ToLowerInvariant() -eq $origin.ToLowerInvariant() })) {
+            $parts += $origin
+            $env:CLIENT_CORS_ORIGIN = ($parts -join ',')
+        }
+    } catch { }
+    return $clean
+}
+
+function Publish-ClientPublicUrlToApi {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [string]$ApiBase = ''
+    )
+    if (-not $ApiBase) {
+        $ApiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
+    }
+    $headers = @{ 'Content-Type' = 'application/json'; }
+    if ($env:API_ADMIN_TOKEN -and $env:API_ADMIN_TOKEN -ne 'CHANGE_ME_ADMIN_TOKEN') {
+        $headers['x-admin-token'] = $env:API_ADMIN_TOKEN
+    }
+    try {
+        $body = @{ url = $Url } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Put -Uri "$ApiBase/api/system/client-web" -Headers $headers -Body $body -TimeoutSec 8 | Out-Null
+        return $true
+    } catch {
+        Write-Warn "Could not push CLIENT_PUBLIC_URL to Control API: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Start Cloudflare quick tunnel to Client Web :5174 and capture https://*.trycloudflare.com.
+# Writes .vs-v2-client-public-url and updates Control API so Clients page shows the address.
+function Start-ClientWebCloudflareTunnel {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [switch]$DryRun,
+        [int]$WaitSeconds = 50
+    )
+    if ($env:SKIP_CLOUDFLARE -eq '1' -or $env:VS_SKIP_CLOUDFLARE -eq '1') {
+        Write-Warn 'SKIP_CLOUDFLARE=1 - not starting cloudflared (paste URL on Control Panel Clients)'
+        return $null
+    }
+    # If admin already set a stable public HTTPS URL, do not replace with ephemeral tunnel.
+    $existing = ''
+    if ($env:CLIENT_PUBLIC_URL) { $existing = $env:CLIENT_PUBLIC_URL.Trim() }
+    $markerPath = Join-Path $Root '.vs-v2-client-public-url'
+    if (-not $existing -and (Test-Path -LiteralPath $markerPath)) {
+        $existing = (Get-Content -LiteralPath $markerPath -Raw -ErrorAction SilentlyContinue).Trim()
+    }
+    if ($existing -match '^https://' -and $existing -notmatch 'trycloudflare\.com') {
+        Write-Ok "Keeping existing public CLIENT_PUBLIC_URL: $existing"
+        [void](Publish-ClientPublicUrlToApi -Url $existing)
+        return $existing
+    }
+
+    $cf = Resolve-Tool -Name 'cloudflared'
+    if (-not $cf) {
+        Write-Warn 'cloudflared missing - trying winget Cloudflare.cloudflared'
+        [void](Ensure-Tool -Name 'cloudflared' -WingetId 'Cloudflare.cloudflared' -DryRun:$DryRun)
+        $cf = Resolve-Tool -Name 'cloudflared'
+    }
+    if (-not $cf) {
+        Write-Warn 'cloudflared not installed. Install: winget install -e --id Cloudflare.cloudflared'
+        Write-Warn 'Then re-run LIVE.bat - or paste https://....trycloudflare.com on Control Panel -> Clients -> SAVE URL'
+        return $null
+    }
+
+    $port = if ($env:CLIENT_PUBLIC_PORT -and $env:CLIENT_PUBLIC_PORT -match '^\d+$') { $env:CLIENT_PUBLIC_PORT } else { '5174' }
+    $target = "http://127.0.0.1:$port"
+    $logs = Join-Path $Root 'logs'
+    if (-not (Test-Path -LiteralPath $logs)) { New-Item -ItemType Directory -Path $logs | Out-Null }
+    $cfLog = Join-Path $logs 'cloudflared.live.log'
+    $cfPidFile = Join-Path $logs 'cloudflared.live.pid'
+
+    if ($DryRun) {
+        Write-Host "[dry-run] cloudflared tunnel --url $target"
+        return $null
+    }
+
+    # Stop previous LIVE tunnel if pid file present
+    if (Test-Path -LiteralPath $cfPidFile) {
+        $oldPid = 0
+        [void][int]::TryParse((Get-Content -LiteralPath $cfPidFile -Raw).Trim(), [ref]$oldPid)
+        if ($oldPid -gt 0) {
+            try {
+                $p = Get-Process -Id $oldPid -ErrorAction SilentlyContinue
+                if ($p -and $p.ProcessName -match 'cloudflared') {
+                    Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+                    Write-Ok "Stopped previous cloudflared pid=$oldPid"
+                }
+            } catch { }
+        }
+    }
+
+    Write-Step "Cloudflare quick tunnel -> Client Web $target"
+    Write-Host "  cloudflared: $cf"
+    Write-Host "  log: $cfLog"
+    if (Test-Path -LiteralPath $cfLog) { Remove-Item -LiteralPath $cfLog -Force -ErrorAction SilentlyContinue }
+
+    # Use cmd redirection so stdout+stderr land in one log (URL usually on stderr).
+    $launcher = Join-Path $env:TEMP 'vs-v2-VS-Cloudflare-live.cmd'
+    $cmd = @"
+@echo off
+title VS-Cloudflare
+color 0B
+cd /d "$Root"
+echo ============================================================
+echo   VS-Cloudflare quick tunnel
+echo   Target: $target
+echo   Log: $cfLog
+echo   Keep this window open while clients use the public URL.
+echo ============================================================
+"$cf" tunnel --no-autoupdate --url $target 1>> "$cfLog" 2>&1
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] cloudflared exited code=%RC%>> "$cfLog"
+echo.
+echo [VS-Cloudflare] exited with code %RC%
+pause
+"@
+    Set-Content -LiteralPath $launcher -Value $cmd -Encoding ASCII
+    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$launcher`"") -PassThru -WindowStyle Normal
+    Set-Content -LiteralPath $cfPidFile -Value "$($proc.Id)`n" -Encoding utf8
+    Write-Ok "VS-Cloudflare CMD window started (pid=$($proc.Id))"
+
+    $found = $null
+    $deadline = (Get-Date).AddSeconds($WaitSeconds)
+    $rx = [regex]'https://[a-zA-Z0-9.-]+\.trycloudflare\.com'
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 800
+        if (Test-Path -LiteralPath $cfLog) {
+            $text = Get-Content -LiteralPath $cfLog -Raw -ErrorAction SilentlyContinue
+            if ($text) {
+                $m = $rx.Match($text)
+                if ($m.Success) {
+                    $found = $m.Value.TrimEnd('/')
+                    break
+                }
+            }
+        }
+    }
+
+    if (-not $found) {
+        Write-Warn "Cloudflare URL not detected within ${WaitSeconds}s - see VS-Cloudflare window / $cfLog"
+        Write-Warn 'Paste the trycloudflare.com URL manually on Control Panel -> Clients -> SAVE URL'
+        return $null
+    }
+
+    $clean = Write-ClientPublicUrlMarker -Root $Root -Url $found
+    [void](Publish-ClientPublicUrlToApi -Url $clean)
+    Write-Ok "Client public URL: $clean"
+    Write-Host '  Copy this for clients (also on Control Panel -> Clients)' -ForegroundColor Yellow
+    return $clean
 }
 
 function Ensure-ClientWebDist {

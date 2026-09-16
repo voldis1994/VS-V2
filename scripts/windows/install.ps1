@@ -33,6 +33,8 @@ Write-Step 'Checking dependencies'
 if (-not $SkipDocker) {
     [void](Ensure-Tool -Name 'docker' -WingetId 'Docker.DockerDesktop' -Required -DryRun:$DryRun)
 }
+# Optional: public Client Web tunnel (LIVE.bat uses this for trycloudflare.com URL)
+[void](Ensure-Tool -Name 'cloudflared' -WingetId 'Cloudflare.cloudflared' -DryRun:$DryRun)
 if (-not $SkipCppBuild) {
     Ensure-MsvcBuildTools -DryRun:$DryRun
     Enter-VsDevShell -DryRun:$DryRun

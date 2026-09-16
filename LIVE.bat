@@ -12,8 +12,9 @@ color 0C
 echo.
 echo ============================================================
 echo   VS-V2  LIVE.bat  -  daily LIVE launch (Capital + Client Web)
-echo   Opens 4 CMD windows:
+echo   Opens 4 CMD windows + Cloudflare tunnel:
 echo     Control API + Market Core + Dashboard + Client Web :5174
+echo     VS-Cloudflare (public https://....trycloudflare.com for clients)
 echo   REAL broker open/close - type LIVE to confirm
 echo ============================================================
 echo   Folder: %ROOT%
@@ -34,9 +35,9 @@ if not exist "%ROOT%\scripts\windows\start-live.ps1" (
 
 echo WARNING: This arms LIVE trading against Capital.com.
 echo          Real money open/close orders become allowed when the stack is healthy.
-echo          Client Web serves on :5174 (put HTTPS tunnel in front for remote clients).
+echo          Client Web :5174 + auto Cloudflare quick tunnel (public URL on Clients page).
 echo.
-echo Type: LIVE   (live / Live also OK — no extra spaces)
+echo Type: LIVE   (live / Live also OK - no extra spaces)
 echo.
 set "TYPED="
 set /p "TYPED=Type LIVE to confirm real Capital broker orders: "
@@ -92,11 +93,18 @@ if not "%RC%"=="0" (
   exit /b %RC%
 )
 
-echo.
-echo LIVE stack running. Keep the 4 service CMD windows open.
-echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard / VS-ClientWeb
-echo   Client Web: http://127.0.0.1:5174/
+echo LIVE stack running. Keep the service CMD windows open.
+echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard / VS-ClientWeb / VS-Cloudflare
 echo   Control Panel: http://127.0.0.1:5173/control
+echo   Client Web local: http://127.0.0.1:5174/
+if exist "%ROOT%\.vs-v2-client-public-url" (
+  echo   Client PUBLIC URL:
+  type "%ROOT%\.vs-v2-client-public-url"
+  echo   ^(also Control Panel -^> Clients -^> COPY URL^)
+) else (
+  echo   Client PUBLIC URL: not ready yet - wait for VS-Cloudflare window
+  echo   or paste https://....trycloudflare.com on Control Panel Clients
+)
 echo   Launch log: %ROOT%\logs\live-launch.log
 pause
 exit /b 0

@@ -28,6 +28,8 @@ if (-not $ConfirmLive) {
 $Root = Get-VsRoot -Hint $RepoRoot
 Set-Location $Root
 Assert-VsRepoRoot -Root $Root
+$env:VS_V2_ROOT = $Root
+[Environment]::SetEnvironmentVariable('VS_V2_ROOT', $Root, 'Process')
 
 $logs = Join-Path $Root 'logs'
 if (-not (Test-Path -LiteralPath $logs)) {
@@ -46,7 +48,7 @@ Write-Host '  VS-V2 LIVE.bat - daily LIVE launch (Capital orders ON)' -Foregroun
 Write-Host '============================================================' -ForegroundColor Red
 Write-Host "  Root: $Root"
 Write-Host "  Log:  $launchLog"
-Write-Host '  Opens 4 CMD windows: Control API + Market Core + Dashboard + Client Web'
+Write-Host '  Opens CMD windows: Control API + Market Core + Dashboard + Client Web + Cloudflare'
 Write-Host '  Mode: LIVE | Live trading: ON | Client Web :5174 | Broker open/close: armed'
 Write-Host ''
 
@@ -303,11 +305,12 @@ $apiEnvLines = @(
     'set LIVE_TRADING_ENABLED=true',
     'set CONTROL_API_HOST=0.0.0.0',
     'set CONTROL_API_PORT=3000',
+    ('set VS_V2_ROOT={0}' -f $Root),
     'set npm_config_prefix=',
     'set PREFIX=',
     'set VITE_API_URL='
 )
-foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','CLIENT_COOKIE_SECURE','CLIENT_PUBLIC_PORT','CLIENT_PUBLIC_URL','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL','MARKET_CORE_BRIDGE','CAPITAL_API_KEY','CAPITAL_API_PASSWORD','CAPITAL_IDENTIFIER','CAPITAL_EPIC','CAPITAL_BASE_URL')) {
+foreach ($k in @('DB_HOST','DB_PORT','DB_NAME','DB_USER','DB_PASSWORD','REDIS_HOST','REDIS_PORT','REDIS_URL','DOTENV_CONFIG_PATH','API_ADMIN_TOKEN','ALLOW_INSECURE_ADMIN','CORS_ORIGIN','CLIENT_CORS_ORIGIN','TRUST_PROXY','CLIENT_COOKIE_SECURE','CLIENT_PUBLIC_PORT','CLIENT_PUBLIC_URL','MASTER_ENCRYPTION_KEY','JWT_SECRET','PIPELINE_TOKEN','CONTROL_API_URL','MARKET_CORE_BRIDGE','CAPITAL_API_KEY','CAPITAL_API_PASSWORD','CAPITAL_IDENTIFIER','CAPITAL_EPIC','CAPITAL_BASE_URL','VS_V2_ROOT')) {
     if ($apiExtra.ContainsKey($k)) {
         $apiEnvLines += ('set {0}={1}' -f $k, $apiExtra[$k])
     } else {
@@ -447,6 +450,16 @@ if (-not $DryRun) {
         Write-LogTail -Path $apiLog -Lines 80
         throw "Control API died after start. See VS-ControlAPI window / $apiLog. Or run Restart-ControlAPI.bat"
     }
+
+    # Public HTTPS for remote clients - auto Cloudflare quick tunnel (shows URL on Clients page).
+    Write-Step 'Public Cloudflare URL for clients'
+    $publicUrl = Start-ClientWebCloudflareTunnel -Root $Root -DryRun:$DryRun
+    if ($publicUrl) {
+        $clientUrl = ($publicUrl.TrimEnd('/') + '/')
+        Write-Ok "Clients copy URL: $clientUrl"
+    } else {
+        Write-Warn 'No public Cloudflare URL yet - Control Panel Clients shows local :5174 until you SAVE a tunnel URL'
+    }
 }
 
 if (-not $NoBrowser -and -not $DryRun) {
@@ -465,15 +478,19 @@ if (-not $DryRun) {
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Red
 Write-Host '  LIVE stack running (started by LIVE.bat)' -ForegroundColor Red
-Write-Host '  CMD: VS-ControlAPI | VS-MarketCore | VS-Dashboard | VS-ClientWeb' -ForegroundColor Red
+Write-Host '  CMD: VS-ControlAPI | VS-MarketCore | VS-Dashboard | VS-ClientWeb | VS-Cloudflare' -ForegroundColor Red
 Write-Host "  Control Panel: $controlUrl" -ForegroundColor Red
-Write-Host "  Client Web:    $clientUrl" -ForegroundColor Red
+Write-Host "  Client Web (local): http://127.0.0.1:$(if ($env:CLIENT_PUBLIC_PORT) { $env:CLIENT_PUBLIC_PORT } else { '5174' })/" -ForegroundColor Red
+Write-Host "  Client public URL:  $clientUrl" -ForegroundColor Yellow
 Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Red
 Write-Host '  Mode: LIVE | Live trading: true | Broker orders: ARMED' -ForegroundColor Red
 Write-Host "  Logs: $logs\*.live.log" -ForegroundColor Red
 Write-Host "  Launch log: $launchLog" -ForegroundColor Red
-Write-Host '  Public HTTPS: put Cloudflare/nginx TLS in front of :5174' -ForegroundColor Yellow
-Write-Host '  Set CLIENT_PUBLIC_URL / SAVE URL on Control Panel Clients' -ForegroundColor Yellow
+if ($clientUrl -match 'trycloudflare\.com' -or ($clientUrl -match '^https://' -and $clientUrl -notmatch '127\.0\.0\.1|localhost')) {
+    Write-Host '  Copy Client public URL above (also Control Panel -> Clients -> COPY URL)' -ForegroundColor Yellow
+} else {
+    Write-Host '  No Cloudflare URL yet: install cloudflared or paste tunnel URL on Clients page' -ForegroundColor Yellow
+}
 Write-Host '============================================================' -ForegroundColor Red
 try { Stop-Transcript | Out-Null } catch {}
 return
