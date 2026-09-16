@@ -618,6 +618,7 @@ export function ControlNewsPage() {
 
 export function ControlSystemPage() {
   const { data, error, loading, refresh } = useApi<Record<string, unknown>>('/api/system/status', 5000);
+  const hints = Array.isArray(data?.hints) ? (data?.hints as string[]) : [];
 
   return (
     <div className="cp-panel">
@@ -629,6 +630,13 @@ export function ControlSystemPage() {
       </div>
       {loading && <div className="cp-muted">Loading…</div>}
       {error && <div className="cp-error">{error}</div>}
+      {hints.length > 0 && (
+        <div className="cp-error" style={{ marginTop: '0.75rem' }}>
+          {hints.map((h) => (
+            <div key={h}>{h}</div>
+          ))}
+        </div>
+      )}
       <pre
         style={{
           marginTop: '0.75rem',

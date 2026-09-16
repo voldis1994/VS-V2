@@ -281,6 +281,7 @@ export async function pullEmptyCapitalCatalogs(actor = 'admin'): Promise<{
   succeeded: number;
   failed: Array<{ connection_id: number; client_id: number; error: string }>;
   total_markets: number;
+  note?: string;
 }> {
   const { rows } = await pool.query(
     `SELECT bc.id as connection_id, bc.client_id, ba.id as account_id
@@ -292,6 +293,25 @@ export async function pullEmptyCapitalCatalogs(actor = 'admin'): Promise<{
        )
      ORDER BY bc.id ASC`
   );
+
+  if (rows.length === 0) {
+    const anyCapital = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM broker_connections
+       WHERE broker_name = 'capital_com' AND enabled = true`
+    );
+    const n = Number(anyCapital.rows[0]?.n || 0);
+    return {
+      attempted: 0,
+      succeeded: 0,
+      failed: [],
+      total_markets: 0,
+      note:
+        n === 0
+          ? 'No Capital.com broker connections — Clients → attach Capital API key (identifier + API key + password).'
+          : 'All enabled Capital connections already have markets. Use per-client PULL MARKETS to refresh.',
+    };
+  }
+
   const seen = new Set<number>();
   let succeeded = 0;
   let totalMarkets = 0;

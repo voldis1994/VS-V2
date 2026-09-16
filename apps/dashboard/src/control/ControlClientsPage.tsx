@@ -44,7 +44,11 @@ type ClientWebState = {
   source?: string;
   local_gateway?: string;
   is_public?: boolean;
+  reachable?: boolean | null;
+  stale?: boolean;
   hint?: string;
+  cleared?: boolean;
+  previous?: string | null;
 };
 
 const emptyForm = {
@@ -71,6 +75,8 @@ export function ControlClientsPage() {
   const rows = useMemo(() => data || [], [data]);
   const publicUrl = (clientWeb?.url || '').trim();
   const isPublic = Boolean(clientWeb?.is_public);
+  const urlStale = Boolean(clientWeb?.stale) || clientWeb?.reachable === false;
+  const canCopyPublic = isPublic && !urlStale;
 
   const loadClientWeb = useCallback(async () => {
     try {
@@ -88,14 +94,38 @@ export function ControlClientsPage() {
     void loadClientWeb();
   }, [loadClientWeb]);
 
-  // Poll until Cloudflare / public HTTPS URL appears (LIVE.bat writes marker after tunnel starts).
+  // Poll until Cloudflare URL appears; keep polling trycloudflare so dead tunnels clear.
   useEffect(() => {
-    if (isPublic) return;
     const id = window.setInterval(() => {
       void loadClientWeb();
-    }, 4000);
+    }, canCopyPublic ? 12000 : 4000);
     return () => window.clearInterval(id);
-  }, [isPublic, loadClientWeb]);
+  }, [canCopyPublic, loadClientWeb]);
+
+  useEffect(() => {
+    // Auto-pull empty Capital catalogs once when any client has 0 markets
+    const need =
+      rows.length > 0 &&
+      rows.some((c) => (c.capital_connection_id || c.capital_market_count != null) && Number(c.capital_market_count || 0) === 0);
+    const noneHaveMarkets = rows.length > 0 && rows.every((c) => Number(c.capital_market_count || 0) === 0);
+    if (!need && !noneHaveMarkets) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await apiFetch('/api/clients/pull-empty-markets', {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        if (!cancelled) refresh();
+      } catch {
+        /* surface via FEED / Clients */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot when client list first loads
+  }, [rows.length]);
 
   const flashCopied = (label: string) => {
     setCopied(label);
@@ -127,6 +157,29 @@ export function ControlClientsPage() {
       setUrlMsg('Saglabāts — šo URL sūti klientiem');
     } catch (err) {
       setUrlMsg(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setUrlBusy(false);
+    }
+  };
+
+  const clearPublicUrl = async () => {
+    if (urlBusy) return;
+    setUrlBusy(true);
+    setUrlMsg(null);
+    try {
+      const s = await apiFetch<ClientWebState>('/api/system/client-web/clear', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setClientWeb(s);
+      setUrlDraft(String(s.url || ''));
+      setUrlMsg(
+        s.previous
+          ? `Notīrīts mirušais URL (${s.previous}). Ņem JAUNO no VS-Cloudflare.`
+          : 'Public URL cleared'
+      );
+    } catch (err) {
+      setUrlMsg(err instanceof Error ? err.message : 'Clear failed');
     } finally {
       setUrlBusy(false);
     }
@@ -348,16 +401,18 @@ export function ControlClientsPage() {
           style={{
             wordBreak: 'break-all',
             fontSize: '1.15rem',
-            color: isPublic ? undefined : 'var(--cp-danger, #c44)',
+            color: canCopyPublic ? undefined : 'var(--cp-danger, #c44)',
           }}
         >
           {publicUrl || '—'}
         </div>
-        {!isPublic && (
+        {(urlStale || !isPublic) && (
           <div className="cp-error" style={{ marginTop: '0.5rem' }}>
             <div>
               {clientWeb?.hint ||
-                'Nav publiskas Cloudflare adreses.'}
+                (urlStale
+                  ? 'Cloudflare URL MIRIS (DNS). Veco adresi iPhone vairs neatvērs.'
+                  : 'Nav publiskas Cloudflare adreses.')}
             </div>
             <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
               <li>
@@ -365,17 +420,16 @@ export function ControlClientsPage() {
                 <code>logs\cloudflared.live.log</code>)
               </li>
               <li>
-                Atrodi rindu <code>https://….trycloudflare.com</code>
+                Atrodi <strong>JAUNO</strong> rindu <code>https://….trycloudflare.com</code> (vecā ir mirusi)
               </li>
               <li>Ielīmē zemāk → SAVE URL → COPY URL</li>
               <li>
-                iPhone Safari: tikai <code>https://</code> (ne 127.0.0.1). Ja “cannot open” —
-                pārlādē 1× vai Chrome; VS-Cloudflare logam jābūt atvērtam.
+                iPhone: izdzēs veco bookmark / ieraksti JAUNO https. VS-Cloudflare logam jābūt atvērtam.
               </li>
             </ol>
           </div>
         )}
-        {isPublic && clientWeb?.hint && (
+        {canCopyPublic && clientWeb?.hint && (
           <p className="cp-ok" style={{ marginTop: '0.5rem' }}>
             {clientWeb.hint}
           </p>
@@ -384,12 +438,12 @@ export function ControlClientsPage() {
           <button
             type="button"
             className="cp-btn primary"
-            disabled={!publicUrl || !isPublic}
+            disabled={!publicUrl || !canCopyPublic}
             onClick={() => void copyText(publicUrl, 'URL')}
           >
             COPY URL
           </button>
-          {publicUrl && (
+          {publicUrl && canCopyPublic && (
             <a className="cp-btn ghost" href={publicUrl} target="_blank" rel="noreferrer">
               OPEN
             </a>
@@ -397,10 +451,26 @@ export function ControlClientsPage() {
           <button type="button" className="cp-btn ghost" onClick={() => void loadClientWeb()}>
             REFRESH URL
           </button>
+          <button
+            type="button"
+            className="cp-btn ghost"
+            disabled={urlBusy}
+            onClick={() => void clearPublicUrl()}
+          >
+            CLEAR DEAD URL
+          </button>
+          <button
+            type="button"
+            className="cp-btn primary"
+            disabled={busy}
+            onClick={() => void pullAllEmpty()}
+          >
+            PULL EMPTY MARKETS
+          </button>
           <span className="cp-muted">
             {clientWeb?.source ? `source: ${clientWeb.source}` : ''}
             {clientWeb?.local_gateway ? ` · local ${clientWeb.local_gateway}` : ''}
-            {isPublic ? ' · PUBLIC' : ' · LOCAL ONLY'}
+            {canCopyPublic ? ' · PUBLIC OK' : urlStale ? ' · STALE/DEAD' : ' · LOCAL ONLY'}
           </span>
         </div>
         <label style={{ display: 'block', marginTop: '0.85rem' }}>

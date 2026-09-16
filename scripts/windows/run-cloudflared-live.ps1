@@ -164,6 +164,20 @@ while ($true) {
     Write-Host ''
     if ($script:FoundUrl) {
         Write-Host "[VS-Cloudflare] tunnel session ended. Last URL: $($script:FoundUrl)" -ForegroundColor Yellow
+        Write-Host 'That hostname is now DEAD for iPhone - do not reuse it.' -ForegroundColor Red
+        # Clear marker so Control Panel stops advertising DNS-dead trycloudflare URL
+        try {
+            if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $urlTxt) { Remove-Item -LiteralPath $urlTxt -Force -ErrorAction SilentlyContinue }
+            $headers = @{ }
+            if ($env:API_ADMIN_TOKEN -and $env:API_ADMIN_TOKEN -ne 'CHANGE_ME_ADMIN_TOKEN') {
+                $headers['x-admin-token'] = $env:API_ADMIN_TOKEN
+            }
+            Invoke-RestMethod -Method Post -Uri "$apiBase/api/system/client-web/clear" -Headers $headers -TimeoutSec 5 | Out-Null
+            Write-Host '[OK] Cleared dead public URL from Control Panel' -ForegroundColor Yellow
+        } catch {
+            Write-Host "[WARN] could not clear dead URL: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
         Write-Host 'Restarting tunnel in 3s (keep this window open for iPhone)...' -ForegroundColor Yellow
     } else {
         Write-Host "[VS-Cloudflare] no public URL (code=$rc). Retrying in 8s..." -ForegroundColor Red
