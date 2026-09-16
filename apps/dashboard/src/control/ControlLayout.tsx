@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../hooks/useApi';
 import '../styles/cyberpink.css';
 
@@ -32,9 +32,44 @@ function titleForPath(pathname: string): string {
 }
 
 const WIDE_KEY = 'vs-cp-wide-rail';
+const NARROW_MQ = '(max-width: 1100px)';
+
+function readFsElement(): Element | null {
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+  };
+  return document.fullscreenElement || doc.webkitFullscreenElement || null;
+}
+
+async function enterFullscreen(el: HTMLElement) {
+  const anyEl = el as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void;
+  };
+  if (el.requestFullscreen) {
+    await el.requestFullscreen();
+    return;
+  }
+  if (anyEl.webkitRequestFullscreen) {
+    await anyEl.webkitRequestFullscreen();
+  }
+}
+
+async function exitFullscreen() {
+  const doc = document as Document & {
+    webkitExitFullscreen?: () => Promise<void> | void;
+  };
+  if (document.exitFullscreen && document.fullscreenElement) {
+    await document.exitFullscreen();
+    return;
+  }
+  if (doc.webkitExitFullscreen) {
+    await doc.webkitExitFullscreen();
+  }
+}
 
 export function ControlLayout() {
   const location = useLocation();
+  const appRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<RuntimeMode>('PAPER');
   const [modeBusy, setModeBusy] = useState(false);
   const [modeMsg, setModeMsg] = useState<string | null>(null);
@@ -42,8 +77,16 @@ export function ControlLayout() {
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const [apiDetail, setApiDetail] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [narrow, setNarrow] = useState(() => {
+    try {
+      return window.matchMedia(NARROW_MQ).matches;
+    } catch {
+      return false;
+    }
+  });
   const [wide, setWide] = useState(() => {
     try {
+      if (window.matchMedia(NARROW_MQ).matches) return true;
       return window.localStorage.getItem(WIDE_KEY) === '1';
     } catch {
       return false;
@@ -96,27 +139,57 @@ export function ControlLayout() {
   }, [loadMode]);
 
   useEffect(() => {
-    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
+    const syncFs = () => {
+      const fsEl = readFsElement();
+      setIsFullscreen(Boolean(fsEl));
+    };
+    document.addEventListener('fullscreenchange', syncFs);
+    document.addEventListener('webkitfullscreenchange', syncFs as EventListener);
+    syncFs();
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFs);
+      document.removeEventListener('webkitfullscreenchange', syncFs as EventListener);
+    };
   }, []);
 
   useEffect(() => {
+    const mq = window.matchMedia(NARROW_MQ);
+    const onChange = () => {
+      const isNarrow = mq.matches;
+      setNarrow(isNarrow);
+      if (isNarrow) setWide(true);
+    };
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (narrow) return;
     try {
       window.localStorage.setItem(WIDE_KEY, wide ? '1' : '0');
     } catch {
       /* ignore */
     }
-  }, [wide]);
+  }, [wide, narrow]);
+
+  useEffect(() => {
+    document.documentElement.classList.add('cp-root');
+    document.body.classList.add('cp-body-root');
+    return () => {
+      document.documentElement.classList.remove('cp-root');
+      document.body.classList.remove('cp-body-root');
+    };
+  }, []);
 
   const toggleFullscreen = async () => {
     try {
-      if (!document.fullscreenElement) {
-        const root = document.documentElement;
-        if (root.requestFullscreen) await root.requestFullscreen();
-      } else if (document.exitFullscreen) {
-        await document.exitFullscreen();
+      if (readFsElement()) {
+        await exitFullscreen();
+        return;
       }
+      const el = appRef.current || document.documentElement;
+      await enterFullscreen(el);
     } catch (e) {
       setModeMsg(e instanceof Error ? e.message : 'Fullscreen blocked by browser');
     }
@@ -146,10 +219,15 @@ export function ControlLayout() {
     }
   };
 
+  const shellWide = wide || narrow;
+
   return (
-    <div className="cp-app">
-      <div className={`cp-shell${wide ? ' cp-shell--wide' : ''}`}>
-        <aside className="cp-rail">
+    <div
+      ref={appRef}
+      className={`cp-app${isFullscreen ? ' cp-app--fs' : ''}${shellWide ? ' cp-app--wide' : ''}`}
+    >
+      <div className={`cp-shell${shellWide ? ' cp-shell--wide' : ''}`}>
+        <aside className="cp-rail" aria-label="Control navigation">
           <div className="cp-brand">
             <img src="/logo-emblem.png" alt="VS" className="cp-brand-mark" />
             <div className="cp-brand-text">
@@ -209,19 +287,21 @@ export function ControlLayout() {
                 type="button"
                 className="cp-btn ghost"
                 onClick={() => void toggleFullscreen()}
-                title="Browser fullscreen (F11 also works)"
+                title="Fill the whole monitor (browser fullscreen)"
               >
                 {isFullscreen ? 'EXIT FULL' : 'FULLSCREEN'}
               </button>
-              <button
-                type="button"
-                className="cp-btn ghost"
-                onClick={() => setWide((v) => !v)}
-                title="Hide/show left menu for more workspace"
-              >
-                {wide ? 'SHOW MENU' : 'MORE SPACE'}
-              </button>
-              {wide && (
+              {!narrow && (
+                <button
+                  type="button"
+                  className="cp-btn ghost"
+                  onClick={() => setWide((v) => !v)}
+                  title="Hide/show left menu for more workspace"
+                >
+                  {wide ? 'SHOW MENU' : 'MORE SPACE'}
+                </button>
+              )}
+              {shellWide && (
                 <details className="cp-options">
                   <summary className="cp-btn ghost">NAV</summary>
                   <div className="cp-options-panel">
