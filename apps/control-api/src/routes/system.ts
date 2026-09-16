@@ -10,6 +10,10 @@ import {
   RUNTIME_MODES,
 } from '../services/runtimeMode.js';
 import { runPaperPreflight } from '../services/paperPreflight.js';
+import {
+  getClientWebPublicState,
+  setClientPublicUrl,
+} from '../services/clientPublicUrl.js';
 
 function liveEnabled(): boolean {
   const v = process.env.LIVE_TRADING_ENABLED;
@@ -90,6 +94,7 @@ export async function registerSystemRoutes(
       market_core_authoritative: marketCoreAuthoritative(),
       brain_feed: getBrainFeedStatus(),
       pipeline_bridge: getPipelineBridgeStatus(),
+      client_web: getClientWebPublicState(),
     };
   });
 
@@ -144,6 +149,18 @@ export async function registerSystemRoutes(
 
   /** PAPER deploy health/preflight — never arms LIVE and never sends broker orders. */
   app.get('/api/system/preflight', async () => runPaperPreflight());
+
+  /** Public Client Web homepage — copy/send to clients; update when tunnel/domain changes. */
+  app.get('/api/system/client-web', async () => getClientWebPublicState());
+
+  app.put('/api/system/client-web', async (request, reply) => {
+    const body = (request.body || {}) as { url?: string };
+    const result = setClientPublicUrl(String(body.url || ''));
+    if (!result.ok) {
+      return reply.code(400).send({ error: result.error, message: result.error });
+    }
+    return getClientWebPublicState();
+  });
 
   app.post('/api/system/runtime-mode', async (request, reply) => {
     const body = request.body as {

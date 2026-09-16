@@ -420,7 +420,7 @@ export function ControlFeedPage() {
             REFRESH
           </button>
         </div>
-        <p className="cp-muted">Helper only — never places orders in PAPER.</p>
+        <p className="cp-muted">Helper only — LIVE.bat arms Capital open/close; PAPER forbids orders.</p>
       </section>
 
       <div className="cp-grid-2">

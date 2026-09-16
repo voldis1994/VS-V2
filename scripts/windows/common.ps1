@@ -1,5 +1,6 @@
-# Shared helpers for VS-V2 Windows Install.bat / V2.bat
-# HARD RULES: OPERATING_MODE=PAPER, LIVE_TRADING_ENABLED=false, no broker orders.
+# Shared helpers for VS-V2 Windows Install.bat / V2.bat / LIVE.bat
+# PAPER path: OPERATING_MODE=PAPER, LIVE_TRADING_ENABLED=false, no broker orders.
+# LIVE path:  OPERATING_MODE=LIVE, LIVE_TRADING_ENABLED=true (typed confirm + Capital).
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -69,6 +70,100 @@ function Assert-PaperFailClosed {
     $live = ($env:LIVE_TRADING_ENABLED + '').ToLowerInvariant()
     if ($live -eq 'true' -or $live -eq '1') {
         throw 'Safety abort: LIVE_TRADING_ENABLED must be false.'
+    }
+}
+
+# LIVE daily path (LIVE.bat / start-live.ps1). Requires typed confirm in LIVE.bat + -ConfirmLive.
+function Enforce-LiveArmed {
+    $env:OPERATING_MODE = 'LIVE'
+    $env:LIVE_TRADING_ENABLED = 'true'
+    if (-not $env:MARKET_CORE_BRIDGE) { $env:MARKET_CORE_BRIDGE = 'true' }
+    if (-not $env:CONTROL_API_URL) { $env:CONTROL_API_URL = 'http://127.0.0.1:3000' }
+    if (-not $env:CAPITAL_BASE_URL) {
+        $env:CAPITAL_BASE_URL = 'https://api-capital.backend-capital.com'
+    }
+    if ($env:CAPITAL_BASE_URL -match 'demo') {
+        Write-Warn "CAPITAL_BASE_URL is demo ($($env:CAPITAL_BASE_URL)); LIVE orders need the live Capital host"
+    }
+}
+
+function Assert-LiveArmed {
+    if (($env:OPERATING_MODE + '').ToUpperInvariant() -ne 'LIVE') {
+        throw "Safety abort: OPERATING_MODE must be LIVE (got '$($env:OPERATING_MODE)')."
+    }
+    $live = ($env:LIVE_TRADING_ENABLED + '').ToLowerInvariant()
+    if ($live -ne 'true' -and $live -ne '1') {
+        throw 'Safety abort: LIVE_TRADING_ENABLED must be true for LIVE launch.'
+    }
+}
+
+function Assert-LiveCapitalCredentials {
+    $missing = @()
+    foreach ($k in @('CAPITAL_API_KEY', 'CAPITAL_API_PASSWORD', 'CAPITAL_IDENTIFIER')) {
+        $v = [Environment]::GetEnvironmentVariable($k, 'Process')
+        if (-not $v -or "$v".Trim() -eq '') { $missing += $k }
+    }
+    if ($missing.Count -gt 0) {
+        throw ("LIVE requires Capital credentials in .env.live / .env: " + ($missing -join ', '))
+    }
+    Write-Ok 'Capital credentials present (LIVE execution path)'
+}
+
+function Write-RuntimeModeMarker {
+    param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$Mode)
+    $m = $Mode.Trim().ToUpperInvariant()
+    Set-Content -LiteralPath (Join-Path $Root '.vs-v2-runtime-mode') -Value $m -Encoding ASCII
+}
+
+function Read-RuntimeModeMarker {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    $p = Join-Path $Root '.vs-v2-runtime-mode'
+    if (-not (Test-Path -LiteralPath $p)) { return $null }
+    $m = ((Get-Content -LiteralPath $p -Raw) + '').Trim().ToUpperInvariant()
+    if ($m -eq 'LIVE' -or $m -eq 'PAPER' -or $m -eq 'SHADOW') { return $m }
+    return $null
+}
+
+function Invoke-LivePreflight {
+    param([string]$Root)
+    Assert-LiveArmed
+    $api = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else { 'http://127.0.0.1:3000' }
+
+    if (-not (Wait-HttpOk -Url "$api/health" -Attempts 2 -DelayMs 200)) {
+        throw "control-api /health unreachable at $api"
+    }
+    Write-Ok 'control-api /health'
+
+    try {
+        $st = Invoke-RestMethod -Uri "$api/api/system/status" -TimeoutSec 5
+        $mode = ($st.mode + '').ToUpperInvariant()
+        if (-not $mode) { $mode = ($st.operating_mode + '').ToUpperInvariant() }
+        if ($mode -ne 'LIVE') {
+            throw "status not LIVE: mode=$mode (expected LIVE after LIVE.bat)"
+        }
+        if ($st.live_enabled -ne $true -and $st.live_trading_enabled -ne $true) {
+            Write-Warn 'status missing live_enabled=true - check LIVE_TRADING_ENABLED on Control API'
+        } else {
+            Write-Ok 'status LIVE armed (live trading enabled)'
+        }
+        if ($st.live_entries_allowed -eq $true) {
+            Write-Ok 'live_entries_allowed=true (Capital open/close permitted)'
+        } else {
+            Write-Warn 'live_entries_allowed=false until market-core --mode LIVE brain feed connects'
+        }
+    } catch {
+        if ($_.Exception.Message -match 'status not LIVE|unreachable') { throw }
+        Write-Warn ("/api/system/status probe: " + $_.Exception.Message)
+        try {
+            $rm = Invoke-RestMethod -Uri "$api/api/system/runtime-mode" -TimeoutSec 5
+            $mode = ($rm.mode + '').ToUpperInvariant()
+            if ($mode -ne 'LIVE') {
+                throw "runtime-mode not LIVE: mode=$mode"
+            }
+            Write-Ok "runtime-mode LIVE (live_trading_enabled=$($rm.live_trading_enabled))"
+        } catch {
+            throw
+        }
     }
 }
 
@@ -744,4 +839,55 @@ function Start-DockerDeps {
 function Resolve-DashboardUrl {
     if ($env:VITE_DEV_SERVER_URL) { return $env:VITE_DEV_SERVER_URL }
     return 'http://127.0.0.1:5173'
+}
+
+function Resolve-ClientWebUrl {
+    $port = if ($env:CLIENT_PUBLIC_PORT -and $env:CLIENT_PUBLIC_PORT -match '^\d+$') {
+        $env:CLIENT_PUBLIC_PORT
+    } else { '5174' }
+    return ('http://127.0.0.1:{0}/' -f $port)
+}
+
+function Ensure-ClientWebDist {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [switch]$DryRun
+    )
+    $dash = Join-Path $Root 'apps\dashboard'
+    $dist = Join-Path $dash 'dist-client'
+    $indexHtml = Join-Path $dist 'index.html'
+    $indexClient = Join-Path $dist 'index.client.html'
+    if ((Test-Path -LiteralPath $indexHtml) -or (Test-Path -LiteralPath $indexClient)) {
+        if ((Test-Path -LiteralPath $indexClient) -and -not (Test-Path -LiteralPath $indexHtml) -and -not $DryRun) {
+            Copy-Item -LiteralPath $indexClient -Destination $indexHtml -Force
+            Write-Ok 'Linked dist-client\index.html <- index.client.html'
+        }
+        Write-Ok ("client web dist ready: {0}" -f $dist)
+        return $dist
+    }
+    Write-Step 'Building public client web (vite build:client -> dist-client)'
+    if ($DryRun) {
+        Write-Host '[dry-run] npm run build:client --workspace=@vs-v2/dashboard'
+        return $dist
+    }
+    $nodeExe = Get-SystemNodeExe
+    $npmCli = Get-SystemNpmCliJs
+    Push-Location $Root
+    try {
+        & $nodeExe $npmCli run build:client --workspace=@vs-v2/dashboard
+        if ($LASTEXITCODE -ne 0) {
+            throw "build:client failed (exit $LASTEXITCODE)"
+        }
+    } finally {
+        Pop-Location
+    }
+    if ((Test-Path -LiteralPath $indexClient) -and -not (Test-Path -LiteralPath $indexHtml)) {
+        Copy-Item -LiteralPath $indexClient -Destination $indexHtml -Force
+        Write-Ok 'Linked dist-client\index.html <- index.client.html'
+    }
+    if (-not (Test-Path -LiteralPath $indexHtml) -and -not (Test-Path -LiteralPath $indexClient)) {
+        throw "client build missing under $dist"
+    }
+    Write-Ok ("client web built: {0}" -f $dist)
+    return $dist
 }

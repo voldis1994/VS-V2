@@ -1,7 +1,10 @@
-# Restart Control API only (Windows PAPER). Leaves Dashboard / Market Core alone.
+# Restart Control API only (Windows). Leaves Dashboard / Market Core alone.
 # ALWAYS starts via absolute node.exe + apps\control-api\dist\index.js - NEVER npm.
+# Mode: AUTO (reads .vs-v2-runtime-mode), or explicit PAPER / LIVE.
 param(
     [string]$RepoRoot = '',
+    [ValidateSet('AUTO', 'PAPER', 'LIVE')]
+    [string]$Mode = 'AUTO',
     [switch]$DryRun
 )
 
@@ -12,9 +15,28 @@ $Root = Get-VsRoot -Hint $RepoRoot
 Set-Location $Root
 Assert-VsRepoRoot -Root $Root
 
-if (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Path $Root '.env.paper') }
-elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
-Enforce-PaperFailClosed
+$resolved = $Mode
+if ($resolved -eq 'AUTO') {
+    $marker = Read-RuntimeModeMarker -Root $Root
+    if ($marker -eq 'LIVE') { $resolved = 'LIVE' }
+    elseif (Test-Path (Join-Path $Root '.env.live')) { $resolved = 'LIVE' }
+    else { $resolved = 'PAPER' }
+}
+
+if ($resolved -eq 'LIVE') {
+    if (Test-Path (Join-Path $Root '.env.live')) { Import-DotEnvFile -Path (Join-Path $Root '.env.live') }
+    elseif (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Path $Root '.env.paper') }
+    elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
+    Enforce-LiveArmed
+    Assert-LiveArmed
+    Write-RuntimeModeMarker -Root $Root -Mode 'LIVE'
+} else {
+    if (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Path $Root '.env.paper') }
+    elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
+    Enforce-PaperFailClosed
+    Assert-PaperFailClosed
+    Write-RuntimeModeMarker -Root $Root -Mode 'PAPER'
+}
 
 $logs = Join-Path $Root 'logs'
 if (-not (Test-Path -LiteralPath $logs)) { New-Item -ItemType Directory -Path $logs | Out-Null }
@@ -23,7 +45,7 @@ $apiBase = if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL.TrimEnd('/') } else 
 $apiPort = 3000
 if ($env:CONTROL_API_PORT -match '^\d+$') { $apiPort = [int]$env:CONTROL_API_PORT }
 
-Write-Step "Stopping anything on port $apiPort"
+Write-Step "Stopping anything on port $apiPort (restart mode=$resolved)"
 if (-not $DryRun) {
     try {
         $conns = Get-NetTCPConnection -LocalPort $apiPort -State Listen -ErrorAction SilentlyContinue
@@ -42,6 +64,7 @@ if (-not $DryRun) {
 try { Start-DockerDeps -Root $Root -DryRun:$DryRun } catch { Write-Warn $_.Exception.Message }
 
 $distJs = Join-Path $Root 'apps\control-api\dist\index.js'
+$envLive = Join-Path $Root '.env.live'
 $envPaper = Join-Path $Root '.env.paper'
 $nodeExe = Get-SystemNodeExe
 if (-not (Test-Path -LiteralPath $distJs)) {
@@ -71,12 +94,18 @@ $passKeys = @(
     'CONTROL_API_URL',
     'API_ADMIN_TOKEN', 'ALLOW_INSECURE_ADMIN',
     'CORS_ORIGIN', 'CLIENT_CORS_ORIGIN', 'TRUST_PROXY',
-    'MASTER_ENCRYPTION_KEY', 'JWT_SECRET', 'PIPELINE_TOKEN'
+    'MASTER_ENCRYPTION_KEY', 'JWT_SECRET', 'PIPELINE_TOKEN',
+    'MARKET_CORE_BRIDGE',
+    'CAPITAL_API_KEY', 'CAPITAL_API_PASSWORD', 'CAPITAL_IDENTIFIER', 'CAPITAL_EPIC', 'CAPITAL_BASE_URL'
 )
 
-$envBlock = @(
-    'set OPERATING_MODE=PAPER',
-    'set LIVE_TRADING_ENABLED=false',
+$modeLine = if ($resolved -eq 'LIVE') {
+    @('set OPERATING_MODE=LIVE', 'set LIVE_TRADING_ENABLED=true')
+} else {
+    @('set OPERATING_MODE=PAPER', 'set LIVE_TRADING_ENABLED=false')
+}
+
+$envBlock = $modeLine + @(
     'set CONTROL_API_HOST=0.0.0.0',
     ('set CONTROL_API_PORT={0}' -f $apiPort),
     ('set DB_HOST={0}' -f $dbHost),
@@ -85,29 +114,35 @@ $envBlock = @(
     'set PREFIX=',
     'set VITE_API_URL='
 )
-if (Test-Path -LiteralPath $envPaper) {
-    $envBlock += ('set DOTENV_CONFIG_PATH={0}' -f $envPaper)
+$dotenv = $null
+if ($resolved -eq 'LIVE' -and (Test-Path -LiteralPath $envLive)) { $dotenv = $envLive }
+elseif (Test-Path -LiteralPath $envPaper) { $dotenv = $envPaper }
+if ($dotenv) {
+    $envBlock += ('set DOTENV_CONFIG_PATH={0}' -f $dotenv)
 }
 foreach ($k in $passKeys) {
     $v = [Environment]::GetEnvironmentVariable($k, 'Process')
     if ($null -ne $v -and "$v" -ne '') { $envBlock += ('set {0}={1}' -f $k, $v) }
 }
 
-$logPath = Join-Path $logs 'control-api.paper.log'
-# Pure CMD - no PowerShell wrapper, no npm.cmd, no npm.ps1, no $args.
+$logName = if ($resolved -eq 'LIVE') { 'control-api.live.log' } else { 'control-api.paper.log' }
+$logPath = Join-Path $logs $logName
+$banner = if ($resolved -eq 'LIVE') { 'LIVE - Capital orders may be armed' } else { 'PAPER only - broker orders forbidden' }
 $cmd = @"
 @echo off
 title VS-ControlAPI
-color 0A
+color $(if ($resolved -eq 'LIVE') { '0C' } else { '0A' })
 cd /d "$Root"
 $($envBlock -join "`r`n")
 echo ============================================================
 echo   VS-ControlAPI (node.exe only - never npm)
+echo   $banner
+echo   mode=$resolved
 echo   node: $nodeExe
 echo   entry: $distJs
 echo   Log: $logPath
 echo ============================================================
-echo [%date% %time%] restart Control API>> "$logPath"
+echo [%date% %time%] restart Control API mode=$resolved>> "$logPath"
 echo [%date% %time%] exe=$nodeExe>> "$logPath"
 echo [%date% %time%] entry=$distJs>> "$logPath"
 echo Starting (node only):
@@ -117,7 +152,6 @@ set "RC=%ERRORLEVEL%"
 echo [%date% %time%] exited Control API code=%RC%>> "$logPath"
 echo.
 echo [VS-ControlAPI] exited with code %RC%
-echo If you see npm-cli.js / npm-prefix.js errors, this launcher is OLD - pull main and re-run.
 echo Log: $logPath
 pause
 "@
@@ -125,7 +159,7 @@ pause
 $launcher = Join-Path $env:TEMP 'vs-v2-VS-ControlAPI-node-only.cmd'
 Set-Content -LiteralPath $launcher -Value $cmd -Encoding ASCII
 
-Write-Step 'Starting Control API window (node.exe only)'
+Write-Step "Starting Control API window (node.exe only, mode=$resolved)"
 Write-Ok "node=$nodeExe"
 Write-Ok "entry=$distJs"
 Write-Ok "db_host=$dbHost"
@@ -140,5 +174,5 @@ if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label '
     Write-LogTail -Path $logPath -Lines 80
     throw "Control API still unhealthy at $apiBase/health - check VS-ControlAPI window / log (DB password, Docker, or missing dist)."
 }
-Write-Ok "Control API healthy at $apiBase/health"
+Write-Ok "Control API healthy at $apiBase/health (mode=$resolved)"
 exit 0

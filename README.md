@@ -55,12 +55,20 @@ cmake --build build -j
 ./build/apps/market-core/market-core --mode PAPER
 ```
 
-LIVE bridge (Capital → control-api):
+LIVE bridge (Capital → control-api, real open/close):
 
 ```bash
-export PIPELINE_TOKEN=... CAPITAL_API_KEY=... MARKET_CORE_BRIDGE=1
-./build/apps/market-core/market-core --mode LIVE --bridge
+# Linux / macOS (type LIVE when prompted, or CONFIRM_LIVE=LIVE)
+./scripts/start-live.sh
+
+# Or manually:
+export OPERATING_MODE=LIVE LIVE_TRADING_ENABLED=true MARKET_CORE_BRIDGE=1
+export PIPELINE_TOKEN=... CAPITAL_API_KEY=... CAPITAL_API_PASSWORD=... CAPITAL_IDENTIFIER=...
+./build/apps/market-core/market-core --mode LIVE
 ```
+
+Windows daily LIVE (Capital orders): double-click `LIVE.bat` and type `LIVE`.
+PAPER fail-closed fallback: `V2.bat`. First-time setup: `Install.bat`.
 
 ## Scripts
 
@@ -72,12 +80,15 @@ export PIPELINE_TOKEN=... CAPITAL_API_KEY=... MARKET_CORE_BRIDGE=1
 
 ### Public client web
 
-Admin Control Panel is the dashboard. Remote clients use a separate build:
+Admin Control Panel is the dashboard (`:5173`). Remote clients use a separate build on **`:5174`**:
 
 ```bash
 npm run build:client --workspace=@vs-v2/dashboard
 # or one-shot:
 bash scripts/deploy-client-web.sh
+# Windows: ClientWeb.bat  (or LIVE.bat starts Client Web automatically)
 ```
 
-Gateway serves `apps/dashboard/dist-client` and proxies `/api` + `/ws` to Control API. Clients must use public HTTPS (not Wi‑Fi-only).
+Gateway serves `apps/dashboard/dist-client` and proxies `/api` + `/ws` to Control API.
+Clients must use public HTTPS (Cloudflare tunnel / nginx in front of `:5174`).
+Set `CLIENT_CORS_ORIGIN` to that HTTPS origin, plus `CLIENT_COOKIE_SECURE=true` and `TRUST_PROXY=true`.

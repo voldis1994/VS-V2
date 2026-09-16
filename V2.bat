@@ -55,5 +55,6 @@ if not "%RC%"=="0" (
 echo.
 echo PAPER stack running. Keep the 3 service CMD windows open.
 echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard
+echo   For real Capital open/close: close this stack and run LIVE.bat
 pause
 exit /b 0

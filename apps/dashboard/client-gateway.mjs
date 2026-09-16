@@ -62,7 +62,7 @@ function proxyHttp(req, res) {
     if (!res.headersSent) {
       res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
     }
-    res.end(`API nav pieejams (:${API_PORT}). Palaid VS.bat.\n${err.message}\n`);
+    res.end(`API nav pieejams (:${API_PORT}). Palaid LIVE.bat / Restart-ControlAPI.bat.\n${err.message}\n`);
   });
   req.pipe(p);
 }
@@ -118,7 +118,7 @@ function sendIndexOrHelp(res) {
     return;
   }
   res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Client panel nav uzbuivets. Palaid VS.bat velreiz (vite build).\n');
+  res.end('Client panel nav uzbuivets. Palaid LIVE.bat vai ClientWeb.bat (build:client).\n');
 }
 
 const server = http.createServer((req, res) => {

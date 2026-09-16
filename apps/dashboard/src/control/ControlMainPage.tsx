@@ -63,7 +63,7 @@ export function ControlMainPage() {
         <div className="cp-kpi">
           <div className="label">Mode</div>
           <div className="value">{String(status?.mode || status?.operating_mode || 'PAPER').toUpperCase()}</div>
-          <div className="delta">fail-closed default PAPER</div>
+          <div className="delta">LIVE.bat arms Capital · PAPER fail-closed</div>
         </div>
       </div>
 

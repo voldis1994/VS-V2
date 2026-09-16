@@ -51,16 +51,23 @@ if (-not $DryRun -and $nodeMajor -lt 20) {
 }
 if ($nodeMajor -ge 20) { Write-Ok "Node.js major=$nodeMajor" }
 
-Write-Step 'Preparing PAPER env (fail-closed)'
+Write-Step 'Preparing PAPER env (fail-closed) + LIVE env template'
 $envPaper = Join-Path $Root '.env.paper'
+$envLive = Join-Path $Root '.env.live'
 $envFile = Join-Path $Root '.env'
 $examplePaper = Join-Path $Root '.env.paper.example'
+$exampleLive = Join-Path $Root '.env.live.example'
 $example = Join-Path $Root '.env.example'
 
 if (-not (Test-Path -LiteralPath $envPaper) -and (Test-Path -LiteralPath $examplePaper)) {
     if ($DryRun) { Write-Host '[dry-run] copy .env.paper.example -> .env.paper' }
     else { Copy-Item -LiteralPath $examplePaper -Destination $envPaper }
     Write-Ok 'created .env.paper'
+}
+if (-not (Test-Path -LiteralPath $envLive) -and (Test-Path -LiteralPath $exampleLive)) {
+    if ($DryRun) { Write-Host '[dry-run] copy .env.live.example -> .env.live' }
+    else { Copy-Item -LiteralPath $exampleLive -Destination $envLive }
+    Write-Ok 'created .env.live (fill Capital creds before LIVE.bat)'
 }
 if (-not (Test-Path -LiteralPath $envFile)) {
     $src = $null
@@ -234,7 +241,8 @@ Write-Ok 'wrote .vs-v2-installed marker'
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host '  INSTALL COMPLETE - PAPER only, LIVE not started' -ForegroundColor Green
-Write-Host '  Next: double-click V2.bat for daily PAPER launch' -ForegroundColor Green
+Write-Host '  INSTALL COMPLETE - LIVE not auto-started' -ForegroundColor Green
+Write-Host '  Next: LIVE.bat (daily LIVE Capital orders - type LIVE to confirm)' -ForegroundColor Green
+Write-Host '        or V2.bat (PAPER fail-closed, no broker orders)' -ForegroundColor Green
 Write-Host '============================================================' -ForegroundColor Green
 exit 0
