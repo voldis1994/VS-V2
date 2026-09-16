@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch, useApi } from '../hooks/useApi';
 
 type ClientRow = {
@@ -32,6 +32,12 @@ type ProvisionResult = ClientRow & {
   message?: string;
 };
 
+type ClientWebState = {
+  url?: string;
+  source?: string;
+  local_gateway?: string;
+};
+
 const emptyForm = {
   name: '',
   password: '',
@@ -47,8 +53,63 @@ export function ControlClientsPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [issued, setIssued] = useState<{ id: number; code: string } | null>(null);
+  const [clientWeb, setClientWeb] = useState<ClientWebState | null>(null);
+  const [urlDraft, setUrlDraft] = useState('');
+  const [urlBusy, setUrlBusy] = useState(false);
+  const [urlMsg, setUrlMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const rows = useMemo(() => data || [], [data]);
+  const publicUrl = (clientWeb?.url || '').trim();
+
+  const loadClientWeb = useCallback(async () => {
+    try {
+      const s = await apiFetch<ClientWebState>('/api/system/client-web');
+      setClientWeb(s);
+      setUrlDraft(String(s.url || ''));
+    } catch {
+      setClientWeb(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadClientWeb();
+  }, [loadClientWeb]);
+
+  const flashCopied = (label: string) => {
+    setCopied(label);
+    window.setTimeout(() => setCopied(null), 1800);
+  };
+
+  const copyText = async (text: string, label: string) => {
+    const t = text.trim();
+    if (!t) return;
+    try {
+      await navigator.clipboard.writeText(t);
+      flashCopied(label);
+    } catch {
+      setMsg('Clipboard blocked — select and copy manually');
+    }
+  };
+
+  const savePublicUrl = async () => {
+    if (urlBusy) return;
+    setUrlBusy(true);
+    setUrlMsg(null);
+    try {
+      const s = await apiFetch<ClientWebState>('/api/system/client-web', {
+        method: 'PUT',
+        body: JSON.stringify({ url: urlDraft.trim() }),
+      });
+      setClientWeb(s);
+      setUrlDraft(String(s.url || ''));
+      setUrlMsg('Saglabāts — šo URL sūti klientiem');
+    } catch (err) {
+      setUrlMsg(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setUrlBusy(false);
+    }
+  };
 
   const createClient = async (e: FormEvent) => {
     e.preventDefault();
@@ -151,6 +212,66 @@ export function ControlClientsPage() {
 
   return (
     <div>
+      <section className="cp-panel cp-issued" style={{ marginBottom: '1rem' }}>
+        <div className="cp-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>KLIENTU WEB MĀJASLAPA</h2>
+            <p className="cp-muted" style={{ margin: '0.35rem 0 0' }}>
+              Publiska adrese klientiem. Kad Cloudflare / domens mainas — ielime jauno URL,
+              saglabā un nokope klientam.
+            </p>
+          </div>
+          {copied && <span className="cp-ok">Copied: {copied}</span>}
+        </div>
+        <div className="cp-issued-code" style={{ wordBreak: 'break-all', fontSize: '1.1rem' }}>
+          {publicUrl || '—'}
+        </div>
+        <div className="cp-row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="cp-btn primary"
+            disabled={!publicUrl}
+            onClick={() => void copyText(publicUrl, 'URL')}
+          >
+            COPY URL
+          </button>
+          {publicUrl && (
+            <a className="cp-btn ghost" href={publicUrl} target="_blank" rel="noreferrer">
+              OPEN
+            </a>
+          )}
+          <span className="cp-muted">
+            {clientWeb?.source ? `source: ${clientWeb.source}` : ''}
+            {clientWeb?.local_gateway ? ` · local ${clientWeb.local_gateway}` : ''}
+          </span>
+        </div>
+        <label style={{ display: 'block', marginTop: '0.85rem' }}>
+          Update public URL
+          <div className="cp-row" style={{ marginTop: '0.35rem', flexWrap: 'wrap' }}>
+            <input
+              style={{ flex: '1 1 16rem', minWidth: '12rem' }}
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              placeholder="https://xxxx.trycloudflare.com"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="cp-btn"
+              disabled={urlBusy || !urlDraft.trim()}
+              onClick={() => void savePublicUrl()}
+            >
+              {urlBusy ? 'SAVING…' : 'SAVE URL'}
+            </button>
+          </div>
+        </label>
+        {urlMsg && (
+          <p className={/fail|error|invalid|required/i.test(urlMsg) ? 'cp-error' : 'cp-ok'}>
+            {urlMsg}
+          </p>
+        )}
+      </section>
+
       <section className="cp-panel cp-hero-panel">
         <div className="cp-clients-hero">
           <img src="/logo-full.png" alt="VS" className="cp-clients-hero-logo" />
@@ -240,13 +361,28 @@ export function ControlClientsPage() {
           <div className="cp-panel cp-issued" style={{ marginTop: '0.75rem' }}>
             <div className="cp-muted">One-time password for client #{issued.id}</div>
             <div className="cp-issued-code">{issued.code}</div>
-            <button
-              type="button"
-              className="cp-btn ghost"
-              onClick={() => void navigator.clipboard.writeText(issued.code)}
-            >
-              COPY
-            </button>
+            <div className="cp-row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="cp-btn ghost"
+                onClick={() => void copyText(issued.code, 'password')}
+              >
+                COPY PASSWORD
+              </button>
+              <button
+                type="button"
+                className="cp-btn primary"
+                disabled={!publicUrl}
+                onClick={() =>
+                  void copyText(
+                    `Klienta web: ${publicUrl}\nParole: ${issued.code}`,
+                    'URL + password'
+                  )
+                }
+              >
+                COPY URL + PASSWORD
+              </button>
+            </div>
           </div>
         )}
       </section>

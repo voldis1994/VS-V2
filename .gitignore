@@ -29,6 +29,7 @@ dist-client/
 # Windows install / runtime markers
 .vs-v2-installed
 .vs-v2-runtime-mode
+.vs-v2-client-public-url
 
 # Data
 data/raw/**

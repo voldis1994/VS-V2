@@ -30,6 +30,7 @@ import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerMarketCoreRoutes } from './routes/marketCore.js';
 import { registerNewsRoutes } from './routes/news.js';
 import { registerClientPanelStatic } from './services/clientPanelStatic.js';
+import { loadClientPublicUrlFromDisk } from './services/clientPublicUrl.js';
 import { TelemetryBroadcaster } from './ws/telemetry.js';
 import { registerMarketStream } from './websocket/marketStream.js';
 import { registerBrainStream } from './websocket/brainStream.js';
@@ -110,6 +111,7 @@ async function main() {
   if (process.env.OPERATING_MODE === undefined || process.env.OPERATING_MODE === '') {
     process.env.OPERATING_MODE = 'PAPER';
   }
+  loadClientPublicUrlFromDisk();
 
   await waitForDatabase();
   await runMigrations();
@@ -126,7 +128,20 @@ async function main() {
   setClientEventHub(clientEvents);
 
   await app.register(cors, {
-    origin: corsOrigins(),
+    // Re-read env each request so SAVE URL on Control Panel updates CLIENT_CORS_ORIGIN live.
+    origin: (origin, cb) => {
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      const allowed = corsOrigins();
+      if (allowed === true) {
+        cb(null, true);
+        return;
+      }
+      const list = Array.isArray(allowed) ? allowed : [allowed];
+      cb(null, list.includes(origin));
+    },
     credentials: true,
   });
 
