@@ -130,41 +130,44 @@ $attempts = @(
     ,@()
 )
 
-$rc = 1
-foreach ($extra in $attempts) {
-    if ($script:FoundUrl) { break }
-    $label = if ($extra.Count -gt 0) { ($extra -join ' ') } else { '(default)' }
-    Write-Host "Attempt: $label" -ForegroundColor Cyan
-    $rc = Invoke-CloudflaredAttempt -ExtraArgs $extra
-    if ($script:FoundUrl) { break }
+# Stay-alive: when quick tunnel dies, Safari "server can't be found". Restart until window closed.
+$round = 0
+while ($true) {
+    $round++
+    $script:FoundUrl = $null
+    $rc = 1
+    Write-Host ''
+    Write-Host ("========== Cloudflare session #{0} ==========" -f $round) -ForegroundColor Cyan
+    foreach ($extra in $attempts) {
+        if ($script:FoundUrl) { break }
+        $label = if ($extra.Count -gt 0) { ($extra -join ' ') } else { '(default)' }
+        Write-Host "Attempt: $label" -ForegroundColor Cyan
+        $rc = Invoke-CloudflaredAttempt -ExtraArgs $extra
+        if ($script:FoundUrl) { break }
 
-    $tail = ''
-    if (Test-Path -LiteralPath $LogPath) {
-        $tail = ((Get-Content -LiteralPath $LogPath -Tail 20 -ErrorAction SilentlyContinue) -join ' ')
+        $tail = ''
+        if (Test-Path -LiteralPath $LogPath) {
+            $tail = ((Get-Content -LiteralPath $LogPath -Tail 20 -ErrorAction SilentlyContinue) -join ' ')
+        }
+        if ($extra.Count -gt 0 -and ($tail -match 'unknown flag|invalid argument|incorrect usage|not a valid|Unrecognized')) {
+            Write-Host '[WARN] flags rejected - falling back' -ForegroundColor Yellow
+            continue
+        }
+        if ($extra.Count -gt 0 -and $rc -ne 0) {
+            Write-Host "[WARN] exit=$rc - falling back" -ForegroundColor Yellow
+            continue
+        }
+        break
     }
-    if ($extra.Count -gt 0 -and ($tail -match 'unknown flag|invalid argument|incorrect usage|not a valid|Unrecognized')) {
-        Write-Host '[WARN] flags rejected - falling back' -ForegroundColor Yellow
-        continue
+
+    Add-Content -LiteralPath $LogPath -Value ("[{0}] session={1} finished code={2} url={3}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $round, $rc, $script:FoundUrl) -ErrorAction SilentlyContinue
+    Write-Host ''
+    if ($script:FoundUrl) {
+        Write-Host "[VS-Cloudflare] tunnel session ended. Last URL: $($script:FoundUrl)" -ForegroundColor Yellow
+        Write-Host 'Restarting tunnel in 3s (keep this window open for iPhone)...' -ForegroundColor Yellow
+    } else {
+        Write-Host "[VS-Cloudflare] no public URL (code=$rc). Retrying in 8s..." -ForegroundColor Red
+        Write-Host "Log: $LogPath" -ForegroundColor Yellow
     }
-    if ($extra.Count -gt 0 -and $rc -ne 0) {
-        Write-Host "[WARN] exit=$rc - falling back" -ForegroundColor Yellow
-        continue
-    }
-    break
+    Start-Sleep -Seconds $(if ($script:FoundUrl) { 3 } else { 8 })
 }
-
-# If URL was found, cloudflared may have exited (failure) or still running via cmd /c finished.
-# For a healthy tunnel cmd /c blocks until cloudflared exits - so when we get URL and then
-# process still runs, Invoke-CloudflaredAttempt only returns after tunnel ends.
-# That is intended: this window stays alive with the tunnel.
-
-Add-Content -LiteralPath $LogPath -Value ("[{0}] finished code={1} url={2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $rc, $script:FoundUrl) -ErrorAction SilentlyContinue
-Write-Host ''
-if ($script:FoundUrl) {
-    Write-Host "[VS-Cloudflare] tunnel session ended. URL was: $($script:FoundUrl)" -ForegroundColor Yellow
-} else {
-    Write-Host "[VS-Cloudflare] no public URL (code=$rc). LIVE can still run on localhost." -ForegroundColor Red
-    Write-Host "Log: $LogPath" -ForegroundColor Yellow
-}
-Write-Host 'Press any key to close...'
-try { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch { Start-Sleep -Seconds 30 }

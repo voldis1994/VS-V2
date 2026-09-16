@@ -405,12 +405,27 @@ export function ControlFeedPage() {
     setProbeBusy(true);
     setProbeMsg(null);
     try {
-      await apiFetch('/api/feeds/probe', { method: 'POST', body: JSON.stringify({}) });
+      try {
+        await apiFetch('/api/feeds/probe', { method: 'POST', body: JSON.stringify({}) });
+      } catch (postErr) {
+        const msg = postErr instanceof Error ? postErr.message : String(postErr);
+        // Stale control-api dist often 404s POST /api/feeds/probe; GET ?probe=1 is the alias.
+        if (/not\s*found|404/i.test(msg)) {
+          await apiFetch('/api/feeds?probe=1');
+        } else {
+          throw postErr;
+        }
+      }
       feedsApi.refresh();
       clientsApi.refresh();
       setProbeMsg('Feeds probed — status should leave IDLE if network OK');
     } catch (e) {
-      setProbeMsg(e instanceof Error ? e.message : 'Probe failed');
+      const raw = e instanceof Error ? e.message : 'Probe failed';
+      setProbeMsg(
+        /not\s*found|404/i.test(raw)
+          ? 'Not found — Control API dist is stale. Close VS-* windows, git pull, run LIVE.bat (rebuilds API) or Restart-ControlAPI.bat'
+          : raw
+      );
     } finally {
       setProbeBusy(false);
     }
@@ -446,7 +461,7 @@ export function ControlFeedPage() {
           Feedi paliek IDLE, kamēr nav pingoti. REFRESH + PROBE izsauc publiskos + Capital avotus.
         </p>
         {probeMsg && (
-          <p className={/fail|error/i.test(probeMsg) ? 'cp-error' : 'cp-ok'}>{probeMsg}</p>
+          <p className={/fail|error|not\s*found|404|stale/i.test(probeMsg) ? 'cp-error' : 'cp-ok'}>{probeMsg}</p>
         )}
       </section>
 
@@ -556,7 +571,13 @@ export function ControlNewsPage() {
         {data?.note ? ` ${data.note}` : ''}
       </p>
       {newsApi.loading && <div className="cp-muted">Loading…</div>}
-      {newsApi.error && <div className="cp-error">{newsApi.error}</div>}
+      {newsApi.error && (
+        <div className="cp-error">
+          {/not\s*found|404/i.test(newsApi.error)
+            ? 'Not found — Control API dist is stale (missing /api/news/desk). Close VS-* windows, git pull, run LIVE.bat or Restart-ControlAPI.bat'
+            : newsApi.error}
+        </div>
+      )}
       <div className="cp-row" style={{ marginBottom: '0.75rem' }}>
         {(data?.open_markets || []).map((m) => (
           <span key={m} className="cp-pill on">

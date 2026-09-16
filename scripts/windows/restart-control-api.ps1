@@ -63,13 +63,10 @@ if (-not $DryRun) {
 
 try { Start-DockerDeps -Root $Root -DryRun:$DryRun } catch { Write-Warn $_.Exception.Message }
 
-$distJs = Join-Path $Root 'apps\control-api\dist\index.js'
+$distJs = Ensure-ControlApiDist -Root $Root -DryRun:$DryRun
 $envLive = Join-Path $Root '.env.live'
 $envPaper = Join-Path $Root '.env.paper'
 $nodeExe = Get-SystemNodeExe
-if (-not (Test-Path -LiteralPath $distJs)) {
-    throw 'apps\control-api\dist\index.js missing. Run Install.bat first.'
-}
 if ($nodeExe -match '(?i)npm') {
     throw "Refusing npm as node.exe: $nodeExe"
 }
@@ -175,4 +172,11 @@ if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label '
     throw "Control API still unhealthy at $apiBase/health - check VS-ControlAPI window / log (DB password, Docker, or missing dist)."
 }
 Write-Ok "Control API healthy at $apiBase/health (mode=$resolved)"
+$missingRoutes = @(Test-ControlApiCriticalRoutes -ApiBase $apiBase)
+if ($missingRoutes.Count -gt 0) {
+    Write-Warn ("Critical routes still missing after start: {0}" -f ($missingRoutes -join ', '))
+    Write-Warn 'Close VS-ControlAPI, run Install.bat (or LIVE.bat) to rebuild dist, then Restart-ControlAPI.bat'
+} else {
+    Write-Ok 'FEED probe + NEWS desk routes verified'
+}
 exit 0

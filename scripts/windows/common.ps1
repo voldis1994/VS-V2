@@ -167,6 +167,26 @@ function Invoke-LivePreflight {
         } else {
             Write-Warn 'live_entries_allowed=false until market-core --mode LIVE brain feed connects'
         }
+        $cm = 0
+        try { $cm = [int]$st.capital_markets } catch { $cm = 0 }
+        if ($cm -le 0) {
+            Write-Warn 'capital_markets=0 - pulling empty Capital catalogs now'
+            try {
+                $headers = @{ 'Content-Type' = 'application/json' }
+                if ($env:API_ADMIN_TOKEN -and $env:API_ADMIN_TOKEN -ne 'CHANGE_ME_ADMIN_TOKEN') {
+                    $headers['x-admin-token'] = $env:API_ADMIN_TOKEN
+                }
+                $pull = Invoke-RestMethod -Method Post -Uri "$api/api/clients/pull-empty-markets" -Headers $headers -Body '{}' -TimeoutSec 120
+                Write-Ok ("pull-empty-markets: attempted={0} succeeded={1} markets={2}" -f $pull.attempted, $pull.succeeded, $pull.total_markets)
+                if ($pull.failed -and @($pull.failed).Count -gt 0) {
+                    Write-Warn ("some Capital pulls failed - check Clients Capital API key: {0}" -f (($pull.failed | ForEach-Object { $_.error }) -join '; '))
+                }
+            } catch {
+                Write-Warn ("pull-empty-markets failed: {0}" -f $_.Exception.Message)
+            }
+        } else {
+            Write-Ok ("capital_markets={0}" -f $cm)
+        }
     } catch {
         if ($_.Exception.Message -match 'status not LIVE|unreachable') { throw }
         Write-Warn ("/api/system/status probe: " + $_.Exception.Message)
@@ -1073,6 +1093,119 @@ function Start-ClientWebCloudflareTunnel {
         Write-Warn ("Cloudflare tunnel soft-fail (LIVE continues): {0}" -f $_.Exception.Message)
         return $null
     }
+}
+
+# Rebuild apps/control-api/dist when missing or older than src (git pull leaves stale dist).
+# Stale dist is why FEED probe / NEWS desk return Fastify "Not Found" while /health is OK.
+function Ensure-ControlApiDist {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [switch]$Force,
+        [switch]$DryRun
+    )
+    $apiPkg = Join-Path $Root 'apps\control-api'
+    $distJs = Join-Path $apiPkg 'dist\index.js'
+    $srcDir = Join-Path $apiPkg 'src'
+    $needBuild = $Force -or -not (Test-Path -LiteralPath $distJs)
+    if (-not $needBuild -and (Test-Path -LiteralPath $srcDir)) {
+        $distTime = (Get-Item -LiteralPath $distJs).LastWriteTimeUtc
+        $newestSrc = Get-ChildItem -LiteralPath $srcDir -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -match '\.(ts|js|mjs|cjs)$' } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+        if ($newestSrc -and $newestSrc.LastWriteTimeUtc -gt $distTime) {
+            $needBuild = $true
+            Write-Warn ("control-api dist stale (src {0} newer than dist) - rebuilding" -f $newestSrc.Name)
+        }
+    }
+    # Critical routes added after early Install.bat builds - force rebuild if missing from dist JS.
+    if (-not $needBuild -and (Test-Path -LiteralPath $distJs)) {
+        $marketJs = Join-Path $apiPkg 'dist\routes\market.js'
+        $newsJs = Join-Path $apiPkg 'dist\routes\news.js'
+        $marketTxt = ''
+        $newsTxt = ''
+        if (Test-Path -LiteralPath $marketJs) {
+            $marketTxt = Get-Content -LiteralPath $marketJs -Raw -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $newsJs) {
+            $newsTxt = Get-Content -LiteralPath $newsJs -Raw -ErrorAction SilentlyContinue
+        }
+        if ($marketTxt -notmatch '/api/feeds/probe' -or $newsTxt -notmatch '/api/news/desk') {
+            $needBuild = $true
+            Write-Warn 'control-api dist missing FEED probe / NEWS desk routes - rebuilding'
+        }
+    }
+    if (-not $needBuild) {
+        Write-Ok ("control-api dist ready: {0}" -f $distJs)
+        return $distJs
+    }
+    Write-Step 'Building control-api (tsc -> dist) so FEED/NEWS routes exist'
+    if ($DryRun) {
+        Write-Host '[dry-run] node tsc -p apps/control-api/tsconfig.json'
+        return $distJs
+    }
+    $nodeExe = Get-SystemNodeExe
+    $tscJs = Join-Path $Root 'node_modules\typescript\bin\tsc'
+    if (-not (Test-Path -LiteralPath $tscJs)) {
+        throw "typescript missing at $tscJs - run Install.bat first"
+    }
+    Push-Location $apiPkg
+    try {
+        & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
+        if ($LASTEXITCODE -ne 0) { throw "tsc failed for control-api (exit $LASTEXITCODE)" }
+        $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
+        if (Test-Path -LiteralPath $copyJs) {
+            & $nodeExe $copyJs
+            if ($LASTEXITCODE -ne 0) { throw 'copy-migrations.mjs failed' }
+        } else {
+            $srcMig = Join-Path $apiPkg 'src\db\migrations'
+            $dstMig = Join-Path $apiPkg 'dist\db\migrations'
+            New-Item -ItemType Directory -Force -Path $dstMig | Out-Null
+            Copy-Item -Path (Join-Path $srcMig '*') -Destination $dstMig -Force
+        }
+    } finally {
+        Pop-Location
+    }
+    if (-not (Test-Path -LiteralPath $distJs)) {
+        throw 'apps\control-api\dist\index.js missing after tsc. Run Install.bat then LIVE.bat again.'
+    }
+    Write-Ok ("control-api built: {0}" -f $distJs)
+    return $distJs
+}
+
+function Test-ControlApiCriticalRoutes {
+    param(
+        [string]$ApiBase = 'http://127.0.0.1:3000',
+        [int]$TimeoutSec = 8
+    )
+    $base = $ApiBase.TrimEnd('/')
+    $missing = @()
+    foreach ($path in @('/api/feeds', '/api/feeds/probe', '/api/news/desk')) {
+        $method = if ($path -eq '/api/feeds/probe') { 'POST' } else { 'GET' }
+        try {
+            $uri = "$base$path"
+            if ($path -eq '/api/feeds') { $uri = "$base/api/feeds?probe=0" }
+            $resp = Invoke-WebRequest -Method $method -Uri $uri -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+            if ([int]$resp.StatusCode -ge 400) { $missing += "$method $path (HTTP $($resp.StatusCode))" }
+        } catch {
+            $code = 0
+            try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+            # 400/401/403/500 mean route exists; 404 means missing from running dist
+            if ($code -eq 404 -or $code -eq 0) {
+                $missing += "$method $path"
+            }
+        }
+    }
+    # GET probe alias must work even when POST is blocked by an old proxy
+    try {
+        $resp2 = Invoke-WebRequest -Method GET -Uri "$base/api/feeds?probe=1" -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+        if ([int]$resp2.StatusCode -eq 404) { $missing += 'GET /api/feeds?probe=1' }
+    } catch {
+        $code = 0
+        try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+        if ($code -eq 404) { $missing += 'GET /api/feeds?probe=1' }
+    }
+    return $missing
 }
 
 function Ensure-ClientWebDist {
