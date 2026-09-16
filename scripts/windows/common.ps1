@@ -944,7 +944,7 @@ function Start-ClientWebCloudflareTunnel {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [switch]$DryRun,
-        [int]$WaitSeconds = 50
+        [int]$WaitSeconds = 90
     )
     if ($env:SKIP_CLOUDFLARE -eq '1' -or $env:VS_SKIP_CLOUDFLARE -eq '1') {
         Write-Warn 'SKIP_CLOUDFLARE=1 - not starting cloudflared (paste URL on Control Panel Clients)'
@@ -1007,36 +1007,37 @@ function Start-ClientWebCloudflareTunnel {
     Write-Host "  log: $cfLog"
     if (Test-Path -LiteralPath $cfLog) { Remove-Item -LiteralPath $cfLog -Force -ErrorAction SilentlyContinue }
 
-    # Use cmd redirection so stdout+stderr land in one log (URL usually on stderr).
-    $launcher = Join-Path $env:TEMP 'vs-v2-VS-Cloudflare-live.cmd'
-    $cmd = @"
-@echo off
-title VS-Cloudflare
-color 0B
-cd /d "$Root"
-echo ============================================================
-echo   VS-Cloudflare quick tunnel
-echo   Target: $target
-echo   Log: $cfLog
-echo   Keep this window open while clients use the public URL.
-echo ============================================================
-"$cf" tunnel --no-autoupdate --url $target 1>> "$cfLog" 2>&1
-set "RC=%ERRORLEVEL%"
-echo [%date% %time%] cloudflared exited code=%RC%>> "$cfLog"
-echo.
-echo [VS-Cloudflare] exited with code %RC%
-pause
-"@
-    Set-Content -LiteralPath $launcher -Value $cmd -Encoding ASCII
-    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$launcher`"") -PassThru -WindowStyle Normal
+    # Visible PowerShell window: tees cloudflared output, prints PUBLIC URL, writes marker.
+    $runner = Join-Path $PSScriptRoot 'run-cloudflared-live.ps1'
+    if (-not (Test-Path -LiteralPath $runner)) {
+        throw "Missing $runner"
+    }
+    $arg = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $runner,
+        '-RepoRoot', $Root,
+        '-CloudflaredExe', $cf,
+        '-TargetUrl', $target,
+        '-LogPath', $cfLog
+    )
+    $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $arg `
+        -WorkingDirectory $Root -PassThru -WindowStyle Normal
     Set-Content -LiteralPath $cfPidFile -Value "$($proc.Id)`n" -Encoding utf8
-    Write-Ok "VS-Cloudflare CMD window started (pid=$($proc.Id))"
+    Write-Ok "VS-Cloudflare window started (pid=$($proc.Id))"
 
     $found = $null
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     $rx = [regex]'https://[a-zA-Z0-9.-]+\.trycloudflare\.com'
     while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 800
+        Start-Sleep -Milliseconds 700
+        if (Test-Path -LiteralPath $markerPath) {
+            $fromMarker = (Get-Content -LiteralPath $markerPath -Raw -ErrorAction SilentlyContinue).Trim()
+            if ($fromMarker -match '^https://[a-zA-Z0-9.-]+\.trycloudflare\.com') {
+                $found = $fromMarker.TrimEnd('/')
+                break
+            }
+        }
         if (Test-Path -LiteralPath $cfLog) {
             $text = Get-Content -LiteralPath $cfLog -Raw -ErrorAction SilentlyContinue
             if ($text) {
@@ -1050,15 +1051,16 @@ pause
     }
 
     if (-not $found) {
-        Write-Warn "Cloudflare URL not detected within ${WaitSeconds}s - see VS-Cloudflare window / $cfLog"
-        Write-Warn 'Paste the trycloudflare.com URL manually on Control Panel -> Clients -> SAVE URL'
+        Write-Warn "Cloudflare URL not detected within ${WaitSeconds}s"
+        Write-Warn "Look in VS-Cloudflare window OR open: $cfLog"
+        Write-Warn 'Find https://....trycloudflare.com -> Control Panel Clients -> paste -> SAVE URL'
         return $null
     }
 
     $clean = Write-ClientPublicUrlMarker -Root $Root -Url $found
     [void](Publish-ClientPublicUrlToApi -Url $clean)
     Write-Ok "Client public URL: $clean"
-    Write-Host '  Copy this for clients (also on Control Panel -> Clients)' -ForegroundColor Yellow
+    Write-Host '  Copy this for clients (also Control Panel -> Clients -> REFRESH URL -> COPY URL)' -ForegroundColor Yellow
     return $clean
 }
 
