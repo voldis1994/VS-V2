@@ -31,6 +31,8 @@ function titleForPath(pathname: string): string {
   return 'MAIN';
 }
 
+const WIDE_KEY = 'vs-cp-wide-rail';
+
 export function ControlLayout() {
   const location = useLocation();
   const [mode, setMode] = useState<RuntimeMode>('PAPER');
@@ -39,6 +41,14 @@ export function ControlLayout() {
   const [clientCount, setClientCount] = useState(0);
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const [apiDetail, setApiDetail] = useState<string>('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [wide, setWide] = useState(() => {
+    try {
+      return window.localStorage.getItem(WIDE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const probeApi = useCallback(async () => {
     // Only same-origin relative URLs (Vite proxy). Never probe localhost:3000 from the browser
@@ -85,6 +95,33 @@ export function ControlLayout() {
       .catch(() => setClientCount(0));
   }, [loadMode]);
 
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WIDE_KEY, wide ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [wide]);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        const root = document.documentElement;
+        if (root.requestFullscreen) await root.requestFullscreen();
+      } else if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    } catch (e) {
+      setModeMsg(e instanceof Error ? e.message : 'Fullscreen blocked by browser');
+    }
+  };
+
   const switchMode = async (next: RuntimeMode) => {
     if (next === mode || modeBusy) return;
     if (next === 'LIVE') {
@@ -111,7 +148,7 @@ export function ControlLayout() {
 
   return (
     <div className="cp-app">
-      <div className="cp-shell">
+      <div className={`cp-shell${wide ? ' cp-shell--wide' : ''}`}>
         <aside className="cp-rail">
           <div className="cp-brand">
             <img src="/logo-emblem.png" alt="VS" className="cp-brand-mark" />
@@ -146,7 +183,7 @@ export function ControlLayout() {
         <div className="cp-main">
           <header className="cp-top">
             <h1>{titleForPath(location.pathname)}</h1>
-            <div className="cp-row">
+            <div className="cp-top-actions">
               <div className="cp-mode" aria-label="Operating mode">
                 {(['PAPER', 'SHADOW', 'LIVE'] as RuntimeMode[]).map((m) => (
                   <button
@@ -168,6 +205,46 @@ export function ControlLayout() {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                className="cp-btn ghost"
+                onClick={() => void toggleFullscreen()}
+                title="Browser fullscreen (F11 also works)"
+              >
+                {isFullscreen ? 'EXIT FULL' : 'FULLSCREEN'}
+              </button>
+              <button
+                type="button"
+                className="cp-btn ghost"
+                onClick={() => setWide((v) => !v)}
+                title="Hide/show left menu for more workspace"
+              >
+                {wide ? 'SHOW MENU' : 'MORE SPACE'}
+              </button>
+              {wide && (
+                <details className="cp-options">
+                  <summary className="cp-btn ghost">NAV</summary>
+                  <div className="cp-options-panel">
+                    {NAV.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        end={item.end}
+                        className="cp-btn"
+                        onClick={(e) => {
+                          const el = (e.currentTarget as HTMLElement).closest('details');
+                          if (el) el.removeAttribute('open');
+                        }}
+                      >
+                        {item.label}
+                        {item.to === '/control/clients' && clientCount > 0
+                          ? ` (${clientCount})`
+                          : ''}
+                      </NavLink>
+                    ))}
+                  </div>
+                </details>
+              )}
               {modeMsg && <span className="cp-muted">{modeMsg}</span>}
             </div>
           </header>

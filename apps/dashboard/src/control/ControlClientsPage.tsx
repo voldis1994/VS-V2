@@ -434,7 +434,7 @@ export function ControlClientsPage() {
             {clientWeb.hint}
           </p>
         )}
-        <div className="cp-row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div className="cp-toolbar">
           <button
             type="button"
             className="cp-btn primary"
@@ -443,21 +443,8 @@ export function ControlClientsPage() {
           >
             COPY URL
           </button>
-          {publicUrl && canCopyPublic && (
-            <a className="cp-btn ghost" href={publicUrl} target="_blank" rel="noreferrer">
-              OPEN
-            </a>
-          )}
           <button type="button" className="cp-btn ghost" onClick={() => void loadClientWeb()}>
             REFRESH URL
-          </button>
-          <button
-            type="button"
-            className="cp-btn ghost"
-            disabled={urlBusy}
-            onClick={() => void clearPublicUrl()}
-          >
-            CLEAR DEAD URL
           </button>
           <button
             type="button"
@@ -467,17 +454,43 @@ export function ControlClientsPage() {
           >
             PULL EMPTY MARKETS
           </button>
-          <span className="cp-muted">
-            {clientWeb?.source ? `source: ${clientWeb.source}` : ''}
-            {clientWeb?.local_gateway ? ` · local ${clientWeb.local_gateway}` : ''}
-            {canCopyPublic ? ' · PUBLIC OK' : urlStale ? ' · STALE/DEAD' : ' · LOCAL ONLY'}
-          </span>
+          <details className="cp-options">
+            <summary className="cp-btn ghost">OPTIONS</summary>
+            <div className="cp-options-panel">
+              {publicUrl && canCopyPublic && (
+                <a className="cp-btn ghost" href={publicUrl} target="_blank" rel="noreferrer">
+                  OPEN URL
+                </a>
+              )}
+              <button
+                type="button"
+                className="cp-btn ghost"
+                disabled={urlBusy}
+                onClick={() => void clearPublicUrl()}
+              >
+                CLEAR DEAD URL
+              </button>
+              <button
+                type="button"
+                className="cp-btn"
+                disabled={urlBusy || !urlDraft.trim()}
+                onClick={() => void savePublicUrl()}
+              >
+                {urlBusy ? 'SAVING…' : 'SAVE URL'}
+              </button>
+              <span className="cp-muted">
+                {clientWeb?.source ? `source: ${clientWeb.source}` : ''}
+                {clientWeb?.local_gateway ? ` · local ${clientWeb.local_gateway}` : ''}
+                {canCopyPublic ? ' · PUBLIC OK' : urlStale ? ' · STALE/DEAD' : ' · LOCAL ONLY'}
+              </span>
+            </div>
+          </details>
         </div>
         <label style={{ display: 'block', marginTop: '0.85rem' }}>
           Update public URL
           <div className="cp-row" style={{ marginTop: '0.35rem', flexWrap: 'wrap' }}>
             <input
-              style={{ flex: '1 1 16rem', minWidth: '12rem' }}
+              style={{ flex: '1 1 16rem', minWidth: 'min(100%, 12rem)', maxWidth: '100%' }}
               value={urlDraft}
               onChange={(e) => setUrlDraft(e.target.value)}
               placeholder="https://xxxx.trycloudflare.com"
@@ -513,7 +526,7 @@ export function ControlClientsPage() {
           </div>
         </div>
         <form className="cp-form" onSubmit={(e) => void createClient(e)}>
-          <div className="cp-grid-2">
+          <div className="cp-form-grid">
             <label>
               Client name
               <input
