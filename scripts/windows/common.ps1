@@ -109,6 +109,22 @@ function Assert-LiveCapitalCredentials {
     Write-Ok 'Capital credentials present (LIVE execution path)'
 }
 
+# Soft check - returns $true if complete. Prefer this in LIVE.bat so API/Dashboard/ClientWeb still start.
+function Test-LiveCapitalCredentials {
+    $missing = @()
+    foreach ($k in @('CAPITAL_API_KEY', 'CAPITAL_API_PASSWORD', 'CAPITAL_IDENTIFIER')) {
+        $v = [Environment]::GetEnvironmentVariable($k, 'Process')
+        if (-not $v -or "$v".Trim() -eq '') { $missing += $k }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Warn ("Capital credentials missing in .env.live / .env: " + ($missing -join ', '))
+        Write-Warn 'Market Core LIVE may fail auth - Control API + Dashboard + Client Web will still start.'
+        return $false
+    }
+    Write-Ok 'Capital credentials present (LIVE execution path)'
+    return $true
+}
+
 function Write-RuntimeModeMarker {
     param([Parameter(Mandatory = $true)][string]$Root, [Parameter(Mandatory = $true)][string]$Mode)
     $m = $Mode.Trim().ToUpperInvariant()

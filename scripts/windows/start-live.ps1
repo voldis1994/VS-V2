@@ -16,6 +16,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$launchLog = $null
+
+try {
 . (Join-Path $PSScriptRoot 'common.ps1')
 
 if (-not $ConfirmLive) {
@@ -26,11 +29,23 @@ $Root = Get-VsRoot -Hint $RepoRoot
 Set-Location $Root
 Assert-VsRepoRoot -Root $Root
 
+$logs = Join-Path $Root 'logs'
+if (-not (Test-Path -LiteralPath $logs)) {
+    New-Item -ItemType Directory -Path $logs | Out-Null
+}
+$launchLog = Join-Path $logs 'live-launch.log'
+try {
+    Start-Transcript -Path $launchLog -Force | Out-Null
+} catch {
+    Write-Warn "Could not start transcript: $($_.Exception.Message)"
+}
+
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Red
 Write-Host '  VS-V2 LIVE.bat - daily LIVE launch (Capital orders ON)' -ForegroundColor Red
 Write-Host '============================================================' -ForegroundColor Red
 Write-Host "  Root: $Root"
+Write-Host "  Log:  $launchLog"
 Write-Host '  Opens 4 CMD windows: Control API + Market Core + Dashboard + Client Web'
 Write-Host '  Mode: LIVE | Live trading: ON | Client Web :5174 | Broker open/close: armed'
 Write-Host ''
@@ -43,13 +58,26 @@ if (-not (Test-Path -LiteralPath $marker)) {
     }
 }
 
-if (Test-Path (Join-Path $Root '.env.live')) { Import-DotEnvFile -Path (Join-Path $Root '.env.live') }
-elseif (Test-Path (Join-Path $Root '.env.paper')) { Import-DotEnvFile -Path (Join-Path $Root '.env.paper') }
-elseif (Test-Path (Join-Path $Root '.env')) { Import-DotEnvFile -Path (Join-Path $Root '.env') }
+Write-Step 'Loading env (.env.live / .env.paper / .env)'
+if (Test-Path (Join-Path $Root '.env.live')) {
+    Import-DotEnvFile -Path (Join-Path $Root '.env.live')
+    Write-Ok 'loaded .env.live'
+} elseif (Test-Path (Join-Path $Root '.env.paper')) {
+    Import-DotEnvFile -Path (Join-Path $Root '.env.paper')
+    Write-Ok 'loaded .env.paper'
+} elseif (Test-Path (Join-Path $Root '.env')) {
+    Import-DotEnvFile -Path (Join-Path $Root '.env')
+    Write-Ok 'loaded .env'
+} else {
+    Write-Warn 'No .env.live / .env.paper / .env found - using process env only'
+}
 
 Enforce-LiveArmed
 Assert-LiveArmed
-Assert-LiveCapitalCredentials
+$hasCapital = Test-LiveCapitalCredentials
+if (-not $hasCapital -and -not $SkipMarketCore) {
+    Write-Warn 'Will still start Control API + Dashboard + Client Web; Market Core may exit on Capital auth.'
+}
 
 # Public client web (:5174) - cookies/CORS for gateway + optional HTTPS tunnel.
 if (-not $env:CLIENT_PUBLIC_PORT) { $env:CLIENT_PUBLIC_PORT = '5174' }
@@ -65,7 +93,8 @@ if (-not $env:CORS_ORIGIN -or "$($env:CORS_ORIGIN)".Trim() -eq '') {
 
 if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKEN') {
     if ($env:ALLOW_INSECURE_ADMIN -ne 'true') {
-        Write-Warn 'API_ADMIN_TOKEN is CHANGE_ME/empty - control-api will refuse admin routes. Re-run Install.bat or set ALLOW_INSECURE_ADMIN=true for local-only.'
+        Write-Warn 'API_ADMIN_TOKEN is CHANGE_ME/empty - setting ALLOW_INSECURE_ADMIN=true for local LIVE start'
+        $env:ALLOW_INSECURE_ADMIN = 'true'
     }
 } else {
     Write-Ok 'API_ADMIN_TOKEN loaded for dashboard proxy'
@@ -74,13 +103,8 @@ if (-not $env:API_ADMIN_TOKEN -or $env:API_ADMIN_TOKEN -eq 'CHANGE_ME_ADMIN_TOKE
 Write-Ok 'Forced OPERATING_MODE=LIVE LIVE_TRADING_ENABLED=true'
 Write-RuntimeModeMarker -Root $Root -Mode 'LIVE'
 
-$logs = Join-Path $Root 'logs'
-if (-not (Test-Path -LiteralPath $logs)) {
-    if ($DryRun) { Write-Host '[dry-run] mkdir logs' }
-    else { New-Item -ItemType Directory -Path $logs | Out-Null }
-}
-
-Write-Step 'Ensuring postgres + redis (no reinstall)'
+Write-Step 'Ensuring postgres + redis (Docker Desktop must be running)'
+Write-Host '  If this hangs >60s: open Docker Desktop, wait until it is green, re-run LIVE.bat'
 try {
     Start-DockerDeps -Root $Root -DryRun:$DryRun
 } catch {
@@ -447,7 +471,23 @@ Write-Host "  Client Web:    $clientUrl" -ForegroundColor Red
 Write-Host "  Control API: $(if ($env:CONTROL_API_URL) { $env:CONTROL_API_URL } else { 'http://127.0.0.1:3000' })" -ForegroundColor Red
 Write-Host '  Mode: LIVE | Live trading: true | Broker orders: ARMED' -ForegroundColor Red
 Write-Host "  Logs: $logs\*.live.log" -ForegroundColor Red
+Write-Host "  Launch log: $launchLog" -ForegroundColor Red
 Write-Host '  Public HTTPS: put Cloudflare/nginx TLS in front of :5174' -ForegroundColor Yellow
-Write-Host '  Set CLIENT_CORS_ORIGIN=https://your-public-host in .env.live' -ForegroundColor Yellow
+Write-Host '  Set CLIENT_PUBLIC_URL / SAVE URL on Control Panel Clients' -ForegroundColor Yellow
 Write-Host '============================================================' -ForegroundColor Red
-exit 0
+try { Stop-Transcript | Out-Null } catch {}
+return
+
+} catch {
+    Write-Host ''
+    Write-Host '[FAIL] LIVE start aborted' -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($_.ScriptStackTrace) {
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
+    }
+    if ($launchLog) {
+        Write-Host "Full log: $launchLog" -ForegroundColor Yellow
+    }
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 1
+}

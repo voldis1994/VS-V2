@@ -56,7 +56,13 @@ if errorlevel 1 (
   exit /b 2
 )
 
-echo [OK] LIVE confirmed - starting stack...
+echo [OK] LIVE confirmed.
+echo.
+echo Starting PowerShell launcher (you should see red/cyan steps below)...
+echo If nothing prints for ^>30s: open Docker Desktop, wait until running, then re-run.
+echo Log will be: %ROOT%\logs\live-launch.log
+echo.
+
 set "OPERATING_MODE=LIVE"
 set "LIVE_TRADING_ENABLED=true"
 
@@ -68,13 +74,20 @@ if errorlevel 1 (
   exit /b 1
 )
 
+if not exist "%ROOT%\logs" mkdir "%ROOT%\logs" >nul 2>&1
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\windows\start-live.ps1" -RepoRoot "%ROOT%" -ConfirmLive %*
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
   color 0C
   echo.
   echo [FAIL] LIVE.bat failed with exit code %RC%
-  echo        Check the error above / logs\*.live.log
+  echo        Read: %ROOT%\logs\live-launch.log
+  if exist "%ROOT%\logs\live-launch.log" (
+    echo ----- live-launch.log tail -----
+    powershell -NoProfile -Command "Get-Content -LiteralPath '%ROOT%\logs\live-launch.log' -Tail 40"
+    echo ----- end -----
+  )
   pause
   exit /b %RC%
 )
@@ -84,6 +97,6 @@ echo LIVE stack running. Keep the 4 service CMD windows open.
 echo   VS-ControlAPI / VS-MarketCore / VS-Dashboard / VS-ClientWeb
 echo   Client Web: http://127.0.0.1:5174/
 echo   Control Panel: http://127.0.0.1:5173/control
-echo   Control Panel mode switch still requires typing LIVE for re-arm.
+echo   Launch log: %ROOT%\logs\live-launch.log
 pause
 exit /b 0
