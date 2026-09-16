@@ -337,8 +337,8 @@ export function ControlClientsPage() {
           <div>
             <h2 style={{ margin: 0 }}>KLIENTU WEB MĀJASLAPA</h2>
             <p className="cp-muted" style={{ margin: '0.35rem 0 0' }}>
-              Publiska Cloudflare / HTTPS adrese klientiem. LIVE.bat to izveido automātiski
-              (VS-Cloudflare logs). Ja mainās — ielīmē jauno URL, SAVE un COPY.
+              Publiska adrese klientiem. LIVE.bat atver VS-Cloudflare logu — tur paradas
+              dzeltena rinda ar https://….trycloudflare.com. Tad seit REFRESH URL → COPY URL.
             </p>
           </div>
           {copied && <span className="cp-ok">Copied: {copied}</span>}
@@ -354,10 +354,22 @@ export function ControlClientsPage() {
           {publicUrl || '—'}
         </div>
         {!isPublic && (
-          <p className="cp-error" style={{ marginTop: '0.5rem' }}>
-            {clientWeb?.hint ||
-              'Nav publiskas Cloudflare adreses. Pagaidi VS-Cloudflare logu pēc LIVE.bat, vai ielīmē https://….trycloudflare.com zemāk un SAVE.'}
-          </p>
+          <div className="cp-error" style={{ marginTop: '0.5rem' }}>
+            <div>
+              {clientWeb?.hint ||
+                'Nav publiskas Cloudflare adreses.'}
+            </div>
+            <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+              <li>
+                Atver logu <strong>VS-Cloudflare</strong> (vai failu{' '}
+                <code>logs\cloudflared.live.log</code>)
+              </li>
+              <li>
+                Atrodi rindu <code>https://….trycloudflare.com</code>
+              </li>
+              <li>Ielīmē zemāk → SAVE URL → COPY URL</li>
+            </ol>
+          </div>
         )}
         {isPublic && clientWeb?.hint && (
           <p className="cp-ok" style={{ marginTop: '0.5rem' }}>

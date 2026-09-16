@@ -42,6 +42,7 @@ def test_files_exist() -> list[str]:
         "scripts/windows/install.ps1",
         "scripts/windows/start-v2.ps1",
         "scripts/windows/start-live.ps1",
+        "scripts/windows/run-cloudflared-live.ps1",
         "scripts/windows/deploy-client-web.ps1",
         "scripts/start-live.sh",
         "apps/dashboard/client-gateway.mjs",
@@ -276,6 +277,17 @@ def test_live_flow() -> list[str]:
             "Safety abort: LIVE launcher refused PAPER",
         ],
         "start-live.ps1",
+    )
+    common = read("scripts/windows/common.ps1")
+    errs += must_contain(
+        common,
+        [
+            "function Start-ClientWebCloudflareTunnel",
+            "run-cloudflared-live.ps1",
+            "trycloudflare",
+            "Write-ClientPublicUrlMarker",
+        ],
+        "common.ps1",
     )
     errs += must_contain(
         sh,
