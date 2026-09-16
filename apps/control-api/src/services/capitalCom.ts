@@ -1041,6 +1041,8 @@ function strOrNull(v: unknown): string | null {
 }
 
 function sleep(ms: number): Promise<void> {
+  // Vitest sets VITEST=true — skip artificial API pacing delays.
+  if (process.env.VITEST) return Promise.resolve();
   return new Promise((r) => setTimeout(r, ms));
 }
 
@@ -1092,83 +1094,207 @@ function normalizeMarket(raw: Record<string, any>, pathNames: string[]): Capital
   };
 }
 
+/** Popular Capital.com epics used when search/list is sparse or rate-limited. */
+export const CAPITAL_SEED_EPICS: string[] = [
+  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
+  'EURGBP', 'EURJPY', 'GBPJPY',
+  'GOLD', 'SILVER', 'XAUUSD', 'XAGUSD',
+  'BTCUSD', 'ETHUSD', 'LTCUSD',
+  'US500', 'US100', 'US30', 'GER40', 'UK100', 'FRA40', 'ESP35', 'JPN225',
+  'OIL_CRUDE', 'OIL_BRENT', 'NATURALGAS',
+  'AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'META', 'GOOGL',
+];
+
+export type CapitalMarketsFetchDiagnostics = {
+  sources: Array<{
+    source: string;
+    ok: boolean;
+    status?: number;
+    added: number;
+    detail?: string;
+  }>;
+};
+
+function extractMarketsArray(json: any): any[] {
+  if (!json || typeof json !== 'object') return [];
+  if (Array.isArray(json.markets)) return json.markets;
+  if (Array.isArray(json.marketDetails)) return json.marketDetails;
+  if (Array.isArray(json)) return json;
+  // Single-market detail payload
+  if (json.instrument || json.epic || json.instrumentEpic) {
+    const instrument = json.instrument && typeof json.instrument === 'object' ? json.instrument : {};
+    return [{ ...instrument, ...json, epic: json.epic || instrument.epic || json.instrumentEpic }];
+  }
+  return [];
+}
+
 /**
- * Walk Capital.com market navigation recursively and collect every market epic/name.
- * Also supplements with /markets?searchTerm= sweeps so sparse nodes are not missed.
- * mode=quick: search sweep only (seconds) for post-provision seed.
- * mode=full: navigation tree + search (1–3 min).
+ * Pull Capital.com market catalog.
+ * Official docs: GET /api/v1/markets with no params returns all available markets.
+ * We also seed known epics + searchTerm sweeps; full mode walks marketnavigation.
  */
 export async function fetchAllCapitalMarkets(
   session: CapitalSession,
-  opts?: { onProgress?: (count: number, note: string) => void; mode?: 'quick' | 'full' }
-): Promise<CapitalMarket[]> {
+  opts?: {
+    onProgress?: (count: number, note: string) => void;
+    mode?: 'quick' | 'full';
+  }
+): Promise<{ markets: CapitalMarket[]; diagnostics: CapitalMarketsFetchDiagnostics }> {
   const byEpic = new Map<string, CapitalMarket>();
   const visitedNodes = new Set<string>();
   const mode = opts?.mode || 'full';
+  const diagnostics: CapitalMarketsFetchDiagnostics = { sources: [] };
 
-  const addMarkets = (arr: any[] | undefined, pathNames: string[]) => {
-    if (!Array.isArray(arr)) return;
+  const addMarkets = (arr: any[] | undefined, pathNames: string[]): number => {
+    if (!Array.isArray(arr)) return 0;
+    let added = 0;
     for (const raw of arr) {
       const m = normalizeMarket(raw, pathNames);
       if (!m) continue;
       if (!byEpic.has(m.epic)) {
         byEpic.set(m.epic, m);
+        added += 1;
         opts?.onProgress?.(byEpic.size, m.display_name);
       }
     }
+    return added;
   };
 
-  const walk = async (nodeId: string | null, pathNames: string[], depth: number) => {
-    if (depth > 12) return;
-    const path = nodeId
-      ? `/api/v1/marketnavigation/${encodeURIComponent(nodeId)}`
-      : '/api/v1/marketnavigation';
-    if (nodeId) {
-      if (visitedNodes.has(nodeId)) return;
-      visitedNodes.add(nodeId);
-    }
-
-    await sleep(120);
-    const res = await session.get(path);
-    if (!res.ok) return;
-
-    addMarkets(res.json.markets, pathNames);
-
-    const nodes = Array.isArray(res.json.nodes) ? res.json.nodes : [];
-    for (const node of nodes) {
-      const id = String(node.id ?? node.nodeId ?? '');
-      const name = String(node.name ?? node.nodeName ?? id);
-      if (!id) continue;
-      await walk(id, [...pathNames, name], depth + 1);
-    }
+  const record = (
+    source: string,
+    ok: boolean,
+    added: number,
+    status?: number,
+    detail?: string
+  ) => {
+    diagnostics.sources.push({ source, ok, status, added, detail });
   };
 
+  // 1) Official full catalog — no query params returns all markets.
+  {
+    await sleep(60);
+    const res = await session.get('/api/v1/markets');
+    if (res.ok) {
+      const added = addMarkets(extractMarketsArray(res.json), ['all']);
+      record('GET /markets (all)', true, added, res.status);
+    } else {
+      record(
+        'GET /markets (all)',
+        false,
+        0,
+        res.status,
+        String(res.json?.errorCode || res.json?.message || res.text.slice(0, 160) || '')
+      );
+    }
+  }
+
+  // 2) Known epic batches — works even when unfiltered list is empty/denied.
+  {
+    const chunkSize = 40;
+    let batchAdded = 0;
+    let lastStatus = 200;
+    let lastDetail = '';
+    let anyOk = false;
+    for (let i = 0; i < CAPITAL_SEED_EPICS.length; i += chunkSize) {
+      const chunk = CAPITAL_SEED_EPICS.slice(i, i + chunkSize);
+      await sleep(mode === 'quick' ? 60 : 100);
+      const res = await session.get(`/api/v1/markets?epics=${encodeURIComponent(chunk.join(','))}`);
+      lastStatus = res.status;
+      if (!res.ok) {
+        lastDetail = String(res.json?.errorCode || res.json?.message || res.text.slice(0, 120) || '');
+        continue;
+      }
+      anyOk = true;
+      batchAdded += addMarkets(extractMarketsArray(res.json), ['seed-epics']);
+    }
+    record('GET /markets?epics=…', anyOk, batchAdded, lastStatus, lastDetail || undefined);
+  }
+
+  // If the official list already filled the catalog, skip slow search in quick mode.
+  const skipSearch = mode === 'quick' && byEpic.size >= 30;
+
+  // 3) Search-term sweeps (supplement).
+  if (!skipSearch) {
+    const terms =
+      mode === 'quick'
+        ? [
+            'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD',
+            'XAU', 'XAG', 'GOLD', 'SILVER', 'BTC', 'ETH',
+            'NAS', 'US5', 'US1', 'SPX', 'DAX', 'UK1',
+            'OIL', 'WTI', 'BRENT', 'AAPL', 'TSLA', 'NVDA',
+          ]
+        : [
+            ...'abcdefghijklmnopqrstuvwxyz'.split(''),
+            ...'0123456789'.split(''),
+            'EUR', 'USD', 'GBP', 'JPY', 'XAU', 'BTC', 'ETH', 'NAS', 'US5', 'OIL', 'GOLD',
+          ];
+    let searchAdded = 0;
+    let fails = 0;
+    let lastFail = '';
+    for (const term of terms) {
+      await sleep(mode === 'quick' ? 50 : 100);
+      const res = await session.get(`/api/v1/markets?searchTerm=${encodeURIComponent(term)}`);
+      if (!res.ok) {
+        fails += 1;
+        lastFail = `HTTP ${res.status} ${res.json?.errorCode || res.json?.message || ''}`.trim();
+        continue;
+      }
+      searchAdded += addMarkets(extractMarketsArray(res.json), ['search', term]);
+    }
+    record(
+      'GET /markets?searchTerm=…',
+      fails < terms.length,
+      searchAdded,
+      undefined,
+      fails ? `${fails}/${terms.length} failed; last=${lastFail}` : undefined
+    );
+  } else {
+    record('GET /markets?searchTerm=…', true, 0, undefined, 'skipped — catalog already seeded');
+  }
+
+  // 4) Full mode: walk market navigation tree.
   if (mode === 'full') {
+    const walk = async (nodeId: string | null, pathNames: string[], depth: number) => {
+      if (depth > 12) return;
+      const path = nodeId
+        ? `/api/v1/marketnavigation/${encodeURIComponent(nodeId)}?limit=500`
+        : '/api/v1/marketnavigation';
+      if (nodeId) {
+        if (visitedNodes.has(nodeId)) return;
+        visitedNodes.add(nodeId);
+      }
+
+      await sleep(100);
+      const res = await session.get(path);
+      if (!res.ok) {
+        record(
+          `marketnavigation${nodeId ? '/' + nodeId : ''}`,
+          false,
+          0,
+          res.status,
+          String(res.json?.errorCode || res.json?.message || '')
+        );
+        return;
+      }
+
+      const added = addMarkets(extractMarketsArray(res.json), pathNames);
+      if (added > 0) {
+        record(`marketnavigation depth=${depth}`, true, added, res.status);
+      }
+
+      const nodes = Array.isArray(res.json.nodes) ? res.json.nodes : [];
+      for (const node of nodes) {
+        const id = String(node.id ?? node.nodeId ?? '');
+        const name = String(node.name ?? node.nodeName ?? id);
+        if (!id) continue;
+        await walk(id, [...pathNames, name], depth + 1);
+      }
+    };
     await walk(null, [], 0);
   }
 
-  const terms =
-    mode === 'quick'
-      ? [
-          'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD',
-          'XAU', 'XAG', 'GOLD', 'SILVER', 'BTC', 'ETH',
-          'NAS', 'US5', 'US1', 'SPX', 'DAX', 'UK1',
-          'OIL', 'WTI', 'BRENT', 'AAPL', 'TSLA', 'NVDA',
-        ]
-      : [
-          ...'abcdefghijklmnopqrstuvwxyz'.split(''),
-          ...'0123456789'.split(''),
-          'EUR', 'USD', 'GBP', 'JPY', 'XAU', 'BTC', 'ETH', 'NAS', 'US5', 'OIL', 'GOLD',
-        ];
-  for (const term of terms) {
-    await sleep(mode === 'quick' ? 80 : 120);
-    const res = await session.get(`/api/v1/markets?searchTerm=${encodeURIComponent(term)}`);
-    if (!res.ok) continue;
-    const markets = Array.isArray(res.json.markets) ? res.json.markets : [];
-    addMarkets(markets, ['search', term]);
-  }
-
-  return [...byEpic.values()].sort((a, b) =>
+  const markets = [...byEpic.values()].sort((a, b) =>
     a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' })
   );
+  return { markets, diagnostics };
 }

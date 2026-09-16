@@ -15,6 +15,8 @@ type ClientRow = {
   robot_status?: string | null;
   capital_market_count?: number | null;
   capital_connection_id?: number | null;
+  capital_markets_error?: string | null;
+  capital_environment?: string | null;
   account_id?: number | null;
   live_trade?: {
     market: string;
@@ -239,6 +241,76 @@ export function ControlClientsPage() {
       refresh();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Pull markets failed');
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pullAllEmpty = async () => {
+    setMsg(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch<{
+        message?: string;
+        attempted?: number;
+        succeeded?: number;
+        total_markets?: number;
+        failed?: Array<{ connection_id: number; error: string }>;
+      }>('/api/clients/pull-empty-markets', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const failHint =
+        res.failed && res.failed.length
+          ? ` First error: ${res.failed[0]?.error || ''}`
+          : '';
+      setMsg((res.message || 'Pull empty done.') + failHint);
+      refresh();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Pull empty failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const attachCapital = async (client: ClientRow) => {
+    setMsg(null);
+    const environment =
+      window.prompt(
+        `Capital environment for ${client.name} (live or demo)`,
+        client.capital_environment || 'live'
+      ) || '';
+    if (!environment.trim()) return;
+    const identifier = window.prompt('Capital identifier (email)', '') || '';
+    if (!identifier.trim()) return;
+    const api_key = window.prompt('Capital API key', '') || '';
+    if (!api_key.trim()) return;
+    const password = window.prompt('Capital API password (not login password)', '') || '';
+    if (!password.trim()) return;
+    setBusy(true);
+    try {
+      const res = await apiFetch<{
+        message?: string;
+        capital_market_count?: number;
+        capital_markets_error?: string | null;
+      }>(`/api/clients/${client.id}/capital`, {
+        method: 'POST',
+        body: JSON.stringify({
+          environment: environment.trim().toLowerCase(),
+          identifier: identifier.trim(),
+          api_key: api_key.trim(),
+          password: password.trim(),
+        }),
+      });
+      setMsg(
+        res.message ||
+          `Capital saved for ${client.name} — ${res.capital_market_count ?? 0} markets`
+      );
+      refresh();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Attach Capital failed');
+      refresh();
     } finally {
       setBusy(false);
     }
@@ -312,8 +384,9 @@ export function ControlClientsPage() {
           <div>
             <h2>ADD CLIENT</h2>
             <p className="cp-muted">
-              Vards + web parole + Capital API. Pec saglabasanas sistema automaticki velk Capital
-              tirgus (quick). Ja Markets = 0 — spied PULL MARKETS.
+              Vards + web parole + Capital API. Pec saglabasanas sistema velk Visus Capital
+              tirgus (GET /markets + seed epics). Ja Markets = 0 — skaties kludu zem rindas un
+              spied PULL MARKETS / ATTACH CAPITAL.
             </p>
           </div>
         </div>
@@ -424,9 +497,20 @@ export function ControlClientsPage() {
       <section className="cp-panel">
         <div className="cp-row" style={{ justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <h2 style={{ margin: 0 }}>CLIENTS</h2>
-          <button type="button" className="cp-btn ghost" onClick={() => refresh()}>
-            REFRESH
-          </button>
+          <div className="cp-row" style={{ gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="cp-btn primary"
+              disabled={busy}
+              onClick={() => void pullAllEmpty()}
+              title="Pull Capital markets for every client with an empty catalog"
+            >
+              PULL ALL EMPTY
+            </button>
+            <button type="button" className="cp-btn ghost" onClick={() => refresh()}>
+              REFRESH
+            </button>
+          </div>
         </div>
         {loading && <div className="cp-muted">Loading…</div>}
         {error && <div className="cp-error">{error}</div>}
@@ -481,9 +565,23 @@ export function ControlClientsPage() {
                         }
                       >
                         {Number(c.capital_market_count || 0)} markets
+                        {c.capital_environment ? ` · ${c.capital_environment}` : ''}
                       </div>
                       {Number(c.capital_market_count || 0) === 0 && (
-                        <div className="cp-muted">Pull needed</div>
+                        <div className="cp-muted">
+                          {c.capital_connection_id ? 'Pull needed' : 'No Capital key'}
+                        </div>
+                      )}
+                      {c.capital_markets_error && (
+                        <div
+                          className="cp-error"
+                          style={{ maxWidth: '14rem', whiteSpace: 'normal', fontSize: '0.75rem' }}
+                          title={c.capital_markets_error}
+                        >
+                          {c.capital_markets_error.length > 140
+                            ? `${c.capital_markets_error.slice(0, 140)}…`
+                            : c.capital_markets_error}
+                        </div>
                       )}
                     </td>
                     <td>
@@ -511,11 +609,20 @@ export function ControlClientsPage() {
                         <button
                           type="button"
                           className="cp-btn primary"
-                          disabled={busy}
+                          disabled={busy || !c.capital_connection_id}
                           onClick={() => void pullMarkets(c)}
                           title="Fetch Capital.com market catalog via API"
                         >
                           PULL MARKETS
+                        </button>
+                        <button
+                          type="button"
+                          className="cp-btn"
+                          disabled={busy}
+                          onClick={() => void attachCapital(c)}
+                          title="Attach or replace Capital.com API key for this client"
+                        >
+                          {c.capital_connection_id ? 'UPDATE CAPITAL' : 'ATTACH CAPITAL'}
                         </button>
                         <button type="button" className="cp-btn" onClick={() => void issuePassword(c)}>
                           SET PASSWORD
