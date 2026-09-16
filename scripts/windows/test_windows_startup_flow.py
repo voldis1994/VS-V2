@@ -286,10 +286,8 @@ def test_live_flow() -> list[str]:
             "run-cloudflared-live.ps1",
             "trycloudflare",
             "Write-ClientPublicUrlMarker",
-            "protocol http2",
-            "edge-ip-version 4",
         ],
-        "common.ps1 / cloudflare runner",
+        "common.ps1",
     )
     runner = read("scripts/windows/run-cloudflared-live.ps1")
     errs += must_contain(
