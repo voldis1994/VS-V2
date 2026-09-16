@@ -135,20 +135,7 @@ function Start-LoggedProcess {
     }
 
     $logPath = Join-Path $logs $LogName
-    # Run via a tiny PS1 so stdout shows in the CMD window AND is appended to the log,
-    # while preserving Node/npm exit codes (plain cmd pipes hide exit 1).
-    $exePs = $exe.Replace("'", "''")
-    $logPs = $logPath.Replace("'", "''")
-    $psScript = @"
-`$ErrorActionPreference = 'Continue'
-Write-Host "Running: $exe $Arguments"
-& '$exePs' $Arguments 2>&1 | Tee-Object -FilePath '$logPs' -Append
-exit `$LASTEXITCODE
-"@
-    $psFile = Join-Path $env:TEMP ('vs-v2-run-' + $Title + '.ps1')
-    Set-Content -LiteralPath $psFile -Value $psScript -Encoding ASCII
-    $runLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $psFile + '"' 
-    # Visible CMD: title + live tee-like note. /k keeps window open if process exits.
+    # Pure CMD redirect - NEVER Tee-Object (UTF-16 LE garble in editors).
     $cmd = @"
 @echo off
 title $Title
@@ -164,7 +151,7 @@ echo ============================================================
 echo [%date% %time%] starting $Title>> "$logPath"
 echo [%date% %time%] exe=$exe args=$Arguments>> "$logPath"
 echo Starting: $exe $Arguments
-$runLine
+"$exe" $Arguments 1>> "$logPath" 2>&1
 set "RC=%ERRORLEVEL%"
 echo [%date% %time%] exited $Title code=%RC%>> "$logPath"
 echo.
@@ -187,35 +174,10 @@ Write-Step 'Starting all PAPER services (3 CMD windows)'
 
 # --- 1) Control API via absolute node.exe (never npm) ---
 $apiLog = Join-Path $logs 'control-api.paper.log'
-$distJs = Join-Path $Root 'apps\control-api\dist\index.js'
 $envPaper = Join-Path $Root '.env.paper'
 $nodeExe = Get-SystemNodeExe
-if (-not (Test-Path -LiteralPath $distJs)) {
-    Write-Warn 'control-api dist missing - building once with node (tsc)'
-    $tscJs = Join-Path $Root 'node_modules\typescript\bin\tsc'
-    $apiPkg = Join-Path $Root 'apps\control-api'
-    if ((Test-Path -LiteralPath $tscJs) -and -not $DryRun) {
-        Push-Location $apiPkg
-        try {
-            & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
-            if ($LASTEXITCODE -ne 0) { throw "tsc failed for control-api (exit $LASTEXITCODE)" }
-            # tsc does not copy *.sql - migrations must land in dist/db/migrations
-            $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
-            if (Test-Path -LiteralPath $copyJs) {
-                & $nodeExe $copyJs
-                if ($LASTEXITCODE -ne 0) { throw 'copy-migrations.mjs failed' }
-            } else {
-                $srcMig = Join-Path $apiPkg 'src\db\migrations'
-                $dstMig = Join-Path $apiPkg 'dist\db\migrations'
-                New-Item -ItemType Directory -Force -Path $dstMig | Out-Null
-                Copy-Item -Path (Join-Path $srcMig '*') -Destination $dstMig -Force
-            }
-        } finally { Pop-Location }
-    }
-    if (-not (Test-Path -LiteralPath $distJs) -and -not $DryRun) {
-        throw 'apps\control-api\dist\index.js missing. Run Install.bat then V2.bat again.'
-    }
-}
+# Rebuild when src newer than dist (avoids FEED/NEWS Fastify Not Found after git pull).
+$distJs = Ensure-ControlApiDist -Root $Root -DryRun:$DryRun
 # Do NOT use --env-file="..." on Windows cmd: quotes become part of the path and Node exits 1 immediately.
 # DOTENV_CONFIG_PATH makes import 'dotenv/config' load .env.paper; bat also sets DB_* from Import-DotEnvFile.
 $nodeArgs = '"' + $distJs + '"'

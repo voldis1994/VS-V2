@@ -183,17 +183,7 @@ function Start-LiveLoggedProcess {
     }
 
     $logPath = Join-Path $logs $LogName
-    $exePs = $exe.Replace("'", "''")
-    $logPs = $logPath.Replace("'", "''")
-    $psScript = @"
-`$ErrorActionPreference = 'Continue'
-Write-Host "Running: $exe $Arguments"
-& '$exePs' $Arguments 2>&1 | Tee-Object -FilePath '$logPs' -Append
-exit `$LASTEXITCODE
-"@
-    $psFile = Join-Path $env:TEMP ('vs-v2-live-run-' + $Title + '.ps1')
-    Set-Content -LiteralPath $psFile -Value $psScript -Encoding ASCII
-    $runLine = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $psFile + '"'
+    # Pure CMD redirect (ASCII/ANSI) - NEVER Tee-Object (writes UTF-16 LE garble in Notepad/VS Code).
     $cmd = @"
 @echo off
 title $Title
@@ -209,7 +199,7 @@ echo ============================================================
 echo [%date% %time%] starting $Title>> "$logPath"
 echo [%date% %time%] exe=$exe args=$Arguments>> "$logPath"
 echo Starting: $exe $Arguments
-$runLine
+"$exe" $Arguments 1>> "$logPath" 2>&1
 set "RC=%ERRORLEVEL%"
 echo [%date% %time%] exited $Title code=%RC%>> "$logPath"
 echo.
@@ -231,35 +221,11 @@ Write-Step 'Starting all LIVE services (3 CMD windows)'
 
 # --- 1) Control API via absolute node.exe (never npm) ---
 $apiLog = Join-Path $logs 'control-api.live.log'
-$distJs = Join-Path $Root 'apps\control-api\dist\index.js'
 $envLive = Join-Path $Root '.env.live'
 $envPaper = Join-Path $Root '.env.paper'
 $nodeExe = Get-SystemNodeExe
-if (-not (Test-Path -LiteralPath $distJs)) {
-    Write-Warn 'control-api dist missing - building once with node (tsc)'
-    $tscJs = Join-Path $Root 'node_modules\typescript\bin\tsc'
-    $apiPkg = Join-Path $Root 'apps\control-api'
-    if ((Test-Path -LiteralPath $tscJs) -and -not $DryRun) {
-        Push-Location $apiPkg
-        try {
-            & $nodeExe $tscJs -p (Join-Path $apiPkg 'tsconfig.json')
-            if ($LASTEXITCODE -ne 0) { throw "tsc failed for control-api (exit $LASTEXITCODE)" }
-            $copyJs = Join-Path $apiPkg 'scripts\copy-migrations.mjs'
-            if (Test-Path -LiteralPath $copyJs) {
-                & $nodeExe $copyJs
-                if ($LASTEXITCODE -ne 0) { throw 'copy-migrations.mjs failed' }
-            } else {
-                $srcMig = Join-Path $apiPkg 'src\db\migrations'
-                $dstMig = Join-Path $apiPkg 'dist\db\migrations'
-                New-Item -ItemType Directory -Force -Path $dstMig | Out-Null
-                Copy-Item -Path (Join-Path $srcMig '*') -Destination $dstMig -Force
-            }
-        } finally { Pop-Location }
-    }
-    if (-not (Test-Path -LiteralPath $distJs) -and -not $DryRun) {
-        throw 'apps\control-api\dist\index.js missing. Run Install.bat then LIVE.bat again.'
-    }
-}
+# Rebuild when src newer than dist (git pull otherwise leaves FEED/NEWS as Fastify Not Found).
+$distJs = Ensure-ControlApiDist -Root $Root -DryRun:$DryRun
 
 $dotenvPath = $null
 if (Test-Path -LiteralPath $envLive) { $dotenvPath = $envLive }
@@ -427,6 +393,37 @@ if (-not $DryRun) {
         throw "Control API did not become healthy at $apiBase/health - see VS-ControlAPI window / log tail. Fix .env.live DB_* then re-run LIVE.bat or Restart-ControlAPI.bat."
     }
     Write-Ok 'Control API healthy'
+    $missingRoutes = @(Test-ControlApiCriticalRoutes -ApiBase $apiBase)
+    if ($missingRoutes.Count -gt 0) {
+        Write-Warn ("Critical API routes missing: {0} - forcing control-api rebuild + restart" -f ($missingRoutes -join ', '))
+        try {
+            $conns = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
+            foreach ($c in @($conns)) {
+                if ($c.OwningProcess) {
+                    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } catch { }
+        Start-Sleep -Seconds 1
+        $distJs = Ensure-ControlApiDist -Root $Root -Force
+        if (-not $DryRun) {
+            $apiLauncher = Join-Path $env:TEMP 'vs-v2-VS-ControlAPI-live-node-only.cmd'
+            if (Test-Path -LiteralPath $apiLauncher) {
+                $apiProc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', "`"$apiLauncher`"") -WorkingDirectory $Root -PassThru -WindowStyle Normal
+                Set-Content -LiteralPath (Join-Path $logs 'control-api.live.log.pid') -Value $apiProc.Id
+            }
+            if (-not (Wait-HttpOk -Url "$apiBase/health" -Attempts 90 -DelayMs 1000 -Label 'Control API /health (after rebuild)')) {
+                throw 'Control API unhealthy after forced rebuild - see VS-ControlAPI window'
+            }
+            $missingRoutes2 = @(Test-ControlApiCriticalRoutes -ApiBase $apiBase)
+            if ($missingRoutes2.Count -gt 0) {
+                throw ("FEED/NEWS routes still missing after rebuild: {0}. Close all VS-* windows, run Install.bat, then LIVE.bat." -f ($missingRoutes2 -join ', '))
+            }
+            Write-Ok 'FEED probe + NEWS desk routes verified after rebuild'
+        }
+    } else {
+        Write-Ok 'FEED probe + NEWS desk routes verified'
+    }
     Invoke-LivePreflight -Root $Root
 }
 

@@ -191,16 +191,14 @@ def test_v2_flow() -> list[str]:
             "DOTENV_CONFIG_PATH",
             "Safety abort: refused non-PAPER",
             "Start-LoggedProcess",
-            "Tee-Object",
+            "1>>",
             "Control API /health",
             "via node.exe (not npm)",
             "node.exe ONLY",
             "VS-ControlAPI-node-only",
-            "copy-migrations",
-            r"dist\db\migrations",
+            "Ensure-ControlApiDist",
             "npm_config_prefix",
             "bypass npm.ps1",
-            r"apps\control-api\dist\index.js",
             "WindowStyle Normal",
             "VS-ControlAPI",
             "VS-MarketCore",
@@ -210,6 +208,20 @@ def test_v2_flow() -> list[str]:
             "Write-RuntimeModeMarker",
         ],
         "start-v2.ps1",
+    )
+    if re.search(r"(?m)^\s*.*\|\s*Tee-Object\b|Tee-Object\s+-FilePath", ps1):
+        errs.append("start-v2.ps1: Tee-Object writes UTF-16 logs - use CMD 1>> redirect")
+    common = read("scripts/windows/common.ps1")
+    errs += must_contain(
+        common,
+        [
+            "function Ensure-ControlApiDist",
+            "function Test-ControlApiCriticalRoutes",
+            "copy-migrations",
+            "/api/feeds/probe",
+            "/api/news/desk",
+        ],
+        "common.ps1",
     )
     if "RootIf" in ps1 or "Rootif" in ps1:
         errs.append("start-v2.ps1: fused $Rootif typo")
@@ -266,6 +278,8 @@ def test_live_flow() -> list[str]:
             "VS-Dashboard",
             "VS-ClientWeb",
             "Ensure-ClientWebDist",
+            "Ensure-ControlApiDist",
+            "Test-ControlApiCriticalRoutes",
             "client-gateway",
             "CLIENT_PUBLIC_PORT",
             "Start-ClientWebCloudflareTunnel",
@@ -281,11 +295,15 @@ def test_live_flow() -> list[str]:
         ],
         "start-live.ps1",
     )
+    if re.search(r"(?m)^\s*.*\|\s*Tee-Object\b|Tee-Object\s+-FilePath", ps1):
+        errs.append("start-live.ps1: Tee-Object writes UTF-16 logs - use CMD 1>> redirect")
     common = read("scripts/windows/common.ps1")
     errs += must_contain(
         common,
         [
             "function Start-ClientWebCloudflareTunnel",
+            "function Ensure-ControlApiDist",
+            "function Test-ControlApiCriticalRoutes",
             "run-cloudflared-live.ps1",
             "trycloudflare",
             "Write-ClientPublicUrlMarker",
@@ -301,6 +319,8 @@ def test_live_flow() -> list[str]:
             "CLIENT PUBLIC URL",
             "trycloudflare",
             "falling back",
+            "Stay-alive",
+            "Restarting tunnel",
         ],
         "run-cloudflared-live.ps1",
     )
