@@ -4,6 +4,11 @@
  * Serves the Vite *build* (dist-client) and proxies /api + /ws to Control API.
  * Vite is NOT in this path, so Cloudflare's changing *.trycloudflare.com
  * Host header can never trigger "Blocked request / allowedHosts".
+ *
+ * Safari/iPhone notes:
+ * - Must be reached via https://*.trycloudflare.com (not 127.0.0.1)
+ * - Proxy strips hop-by-hop headers (Safari rejects bad Transfer-Encoding combos)
+ * - No Google Fonts CDN dependency in the client HTML build
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -31,17 +36,73 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+const HOP_BY_HOP = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+  'te',
+  'trailers',
+  'transfer-encoding',
+  'upgrade',
+]);
+
 function isApiPath(url) {
   const p = (url || '/').split('?')[0];
   return p === '/api' || p.startsWith('/api/') || p === '/ws' || p.startsWith('/ws/');
 }
 
+function forwardedProto(req) {
+  const xf = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  if (xf === 'http' || xf === 'https') return xf;
+  const cf = String(req.headers['cf-visitor'] || '');
+  if (/https/i.test(cf)) return 'https';
+  if (/http/i.test(cf)) return 'http';
+  // Cloudflare Tunnel terminates TLS; default https for public hosts.
+  const host = String(req.headers.host || '');
+  if (/trycloudflare\.com|cloudflare|.\../i.test(host) && !/^(localhost|127\.0\.0\.1)/i.test(host)) {
+    return 'https';
+  }
+  return 'http';
+}
+
 function proxyHeaders(req) {
-  const headers = { ...req.headers };
+  const headers = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    const k = key.toLowerCase();
+    if (HOP_BY_HOP.has(k)) continue;
+    if (value === undefined) continue;
+    headers[key] = value;
+  }
   headers.host = `${API_HOST}:${API_PORT}`;
   headers['x-forwarded-host'] = req.headers.host || '';
-  headers['x-forwarded-proto'] = 'https';
+  headers['x-forwarded-proto'] = forwardedProto(req);
+  headers['x-forwarded-for'] = String(
+    req.headers['cf-connecting-ip'] ||
+      req.headers['x-real-ip'] ||
+      req.socket.remoteAddress ||
+      ''
+  );
   return headers;
+}
+
+function filterResponseHeaders(incoming) {
+  const out = {};
+  for (const [key, value] of Object.entries(incoming.headers || {})) {
+    const k = key.toLowerCase();
+    if (HOP_BY_HOP.has(k)) continue;
+    if (k === 'content-length' && incoming.headers['transfer-encoding']) continue;
+    out[key] = value;
+  }
+  // Help Safari cache HTML/assets sanely through the tunnel.
+  if (!out['cache-control'] && !out['Cache-Control']) {
+    out['Cache-Control'] = 'no-store';
+  }
+  return out;
 }
 
 function proxyHttp(req, res) {
@@ -54,15 +115,24 @@ function proxyHttp(req, res) {
       headers: proxyHeaders(req),
     },
     (incoming) => {
-      res.writeHead(incoming.statusCode || 502, incoming.headers);
+      res.writeHead(incoming.statusCode || 502, filterResponseHeaders(incoming));
       incoming.pipe(res);
     },
   );
   p.on('error', (err) => {
     if (!res.headersSent) {
-      res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(502, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
     }
-    res.end(`API nav pieejams (:${API_PORT}). Palaid LIVE.bat / Restart-ControlAPI.bat.\n${err.message}\n`);
+    res.end(
+      `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"/>` +
+        `<body style="font-family:system-ui;padding:1.5rem;background:#111;color:#eee">` +
+        `<h1>API offline</h1><p>Control API (:${API_PORT}) nav pieejams.</p>` +
+        `<p>Uz Windows: palaid <b>LIVE.bat</b> / <b>Restart-ControlAPI.bat</b>.</p>` +
+        `<pre style="opacity:.7">${String(err.message || err)}</pre></body>\n`,
+    );
   });
   req.pipe(p);
 }
@@ -102,7 +172,13 @@ function safeFileFromUrl(urlPath) {
 
 function sendFile(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+  const headers = {
+    'Content-Type': MIME[ext] || 'application/octet-stream',
+    'Cache-Control': ext === '.html' ? 'no-store' : 'public, max-age=300',
+    // Avoid MIME sniffing quirks on mobile Safari.
+    'X-Content-Type-Options': 'nosniff',
+  };
+  res.writeHead(200, headers);
   fs.createReadStream(filePath).pipe(res);
 }
 
@@ -117,11 +193,25 @@ function sendIndexOrHelp(res) {
     sendFile(res, indexClient);
     return;
   }
-  res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Client panel nav uzbuivets. Palaid LIVE.bat vai ClientWeb.bat (build:client).\n');
+  res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(
+    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"/>` +
+      `<body style="font-family:system-ui;padding:1.5rem;background:#111;color:#eee">` +
+      `<h1>Client panel not built</h1>` +
+      `<p>Palaid <b>LIVE.bat</b> vai <b>ClientWeb.bat</b> (build:client).</p></body>\n`,
+  );
 }
 
 const server = http.createServer((req, res) => {
+  const pathOnly = (req.url || '/').split('?')[0];
+  if (pathOnly === '/healthz' || pathOnly === '/health') {
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end('ok\n');
+    return;
+  }
   if (isApiPath(req.url)) {
     proxyHttp(req, res);
     return;

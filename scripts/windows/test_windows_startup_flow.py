@@ -286,8 +286,21 @@ def test_live_flow() -> list[str]:
             "run-cloudflared-live.ps1",
             "trycloudflare",
             "Write-ClientPublicUrlMarker",
+            "protocol http2",
+            "edge-ip-version 4",
         ],
-        "common.ps1",
+        "common.ps1 / cloudflare runner",
+    )
+    runner = read("scripts/windows/run-cloudflared-live.ps1")
+    errs += must_contain(
+        runner,
+        [
+            "--protocol http2",
+            "--edge-ip-version 4",
+            "CLIENT PUBLIC URL",
+            "trycloudflare",
+        ],
+        "run-cloudflared-live.ps1",
     )
     errs += must_contain(
         sh,

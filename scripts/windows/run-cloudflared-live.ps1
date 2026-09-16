@@ -26,6 +26,7 @@ Write-Host "  Target: $TargetUrl" -ForegroundColor Cyan
 Write-Host "  Log:    $LogPath" -ForegroundColor Cyan
 Write-Host '  Keep this window open while clients use the public URL.' -ForegroundColor Cyan
 Write-Host '  Waiting for https://....trycloudflare.com ...' -ForegroundColor Yellow
+Write-Host '  iPhone: open the https URL (not 127.0.0.1). Keep this window open.' -ForegroundColor Yellow
 Write-Host '============================================================' -ForegroundColor Cyan
 Write-Host ''
 
@@ -58,6 +59,7 @@ function Save-PublicUrl([string]$Url) {
     Write-Host '============================================================' -ForegroundColor Green
     Write-Host '  CLIENT PUBLIC URL (copy this for clients):' -ForegroundColor Green
     Write-Host "  $clean" -ForegroundColor Yellow
+    Write-Host '  iPhone Safari: paste https URL, wait 5s, reload once if needed' -ForegroundColor Green
     Write-Host '  Also: Control Panel -> Clients -> REFRESH URL -> COPY URL' -ForegroundColor Green
     Write-Host "  Saved: $marker" -ForegroundColor Green
     Write-Host '============================================================' -ForegroundColor Green
@@ -77,8 +79,8 @@ function Save-PublicUrl([string]$Url) {
     }
 }
 
-# cloudflared prints the URL on stderr; merge streams and tee to window + log.
-& $CloudflaredExe tunnel --no-autoupdate --url $TargetUrl 2>&1 | ForEach-Object {
+# http2 + IPv4: Safari/iOS often fails on QUIC/HTTP3 race to trycloudflare.com
+& $CloudflaredExe tunnel --no-autoupdate --protocol http2 --edge-ip-version 4 --url $TargetUrl 2>&1 | ForEach-Object {
     $line = "$_"
     Add-Content -LiteralPath $LogPath -Value $line -Encoding utf8
     Write-Host $line

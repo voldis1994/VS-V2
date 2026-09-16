@@ -30,9 +30,9 @@
   --neon: 0 0 8px rgba(180, 255, 0, 0.55);
   --neon-green: 0 0 14px rgba(180, 255, 0, 0.55);
   --neon-cyan: 0 0 14px rgba(0, 229, 255, 0.45);
-  --font-display: 'Orbitron', sans-serif;
-  --font-sans: 'Oxanium', sans-serif;
-  --font-mono: 'Share Tech Mono', monospace;
+  --font-display: 'Orbitron', 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+  --font-sans: 'Oxanium', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Share Tech Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
   --radius: 2px;
   --header-h: 64px;
   --rail-w: 200px;
