@@ -3,8 +3,9 @@ import { pool } from '../db/pool.js';
 import { decrypt } from '../security/encryption.js';
 import { logAudit } from '../services/audit.js';
 import { getInstrumentById } from '../config/instruments.js';
-import { fetchAllCapitalMarkets, acquireCapitalSession, createCapitalPosition } from '../services/capitalCom.js';
+import { acquireCapitalSession, createCapitalPosition } from '../services/capitalCom.js';
 import { assertLiveOrdersAllowed } from '../services/liveOrderGate.js';
+import { pullAndStoreCapitalMarkets } from '../services/capitalMarketsSync.js';
 
 export async function ensureBrokerAccount(connectionId: number, displayName: string): Promise<number> {
   const existing = await pool.query(
@@ -193,14 +194,15 @@ export async function registerTradingRoutes(app: FastifyInstance): Promise<void>
   });
 
   /**
-   * Pull the full Capital.com market tree (real epics + names) for this trading account.
-   * Can take 1–3 minutes depending on account universe size.
+   * Pull Capital.com markets for this trading account.
+   * ?mode=quick (default via body) for fast seed; mode=full for complete tree.
    */
   app.post('/api/trading/accounts/:accountId/pull-capital-markets', async (request, reply) => {
     const { accountId } = request.params as { accountId: string };
+    const body = (request.body || {}) as { mode?: string };
     try {
       const { rows } = await pool.query(
-        `SELECT ba.id as account_id, bc.id as connection_id, bc.broker_name, bc.environment, bc.identifier
+        `SELECT ba.id as account_id, bc.id as connection_id, bc.broker_name
          FROM broker_accounts ba
          JOIN broker_connections bc ON bc.id = ba.broker_connection_id
          WHERE ba.id = $1`,
@@ -209,105 +211,30 @@ export async function registerTradingRoutes(app: FastifyInstance): Promise<void>
       if (rows.length === 0) {
         return reply.code(404).send({ error: 'Trading account not found' });
       }
-      const conn = rows[0] as {
-        account_id: number;
-        connection_id: number;
-        broker_name: string;
-        environment: string;
-        identifier: string | null;
-      };
+      const conn = rows[0] as { account_id: number; connection_id: number; broker_name: string };
       if (conn.broker_name !== 'capital_com') {
         return reply.code(400).send({ error: 'Only Capital.com connections can pull live markets' });
       }
-
-      const creds = await loadCredentialMap(conn.connection_id);
-      const apiKey = creds.api_key || '';
-      const password = creds.password || '';
-      const identifier = (conn.identifier || '').trim();
-      if (!apiKey || !password || !identifier) {
-        return reply.code(400).send({
-          error: 'Missing Capital.com credentials on this broker connection. Re-save Brokers first.',
-        });
-      }
-
-      const opened = await acquireCapitalSession({
-        environment: conn.environment,
-        apiKey,
-        identifier,
-        password,
+      const mode = body.mode === 'full' ? 'full' : 'quick';
+      const result = await pullAndStoreCapitalMarkets({
         connectionId: conn.connection_id,
+        accountId: conn.account_id,
+        mode,
+        actor: 'admin',
       });
-      if (!opened.ok) {
-        return reply.code(400).send({ error: opened.result.detail, message: opened.result.detail });
+      if (!result.ok) {
+        return reply.code(result.statusCode).send({ error: result.error, message: result.error });
       }
-
-      const markets = await fetchAllCapitalMarkets(opened.session);
-
-      if (markets.length === 0) {
-        return reply.code(502).send({
-          error: 'Capital.com returned 0 markets. Check Live/Demo environment and API key permissions.',
-        });
+      if (mode === 'quick') {
+        const { scheduleFullCapitalMarketsPull } = await import('../services/capitalMarketsSync.js');
+        scheduleFullCapitalMarketsPull(result.connection_id, result.account_id);
       }
-
-      // Upsert Capital.com catalog (keep stable IDs via epic unique key).
-      const seenEpics: string[] = [];
-      for (const m of markets) {
-        seenEpics.push(m.epic);
-        await pool.query(
-          `INSERT INTO capital_markets
-           (broker_connection_id, epic, symbol, display_name, instrument_type, category, min_lot, max_lot, lot_step)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           ON CONFLICT (broker_connection_id, epic) DO UPDATE SET
-             symbol = EXCLUDED.symbol,
-             display_name = EXCLUDED.display_name,
-             instrument_type = EXCLUDED.instrument_type,
-             category = EXCLUDED.category,
-             min_lot = EXCLUDED.min_lot,
-             max_lot = EXCLUDED.max_lot,
-             lot_step = EXCLUDED.lot_step,
-             updated_at = NOW()`,
-          [
-            conn.connection_id,
-            m.epic,
-            m.symbol,
-            m.display_name,
-            m.instrument_type,
-            m.category,
-            m.min_lot,
-            m.max_lot,
-            m.lot_step,
-          ]
-        );
-      }
-
-      // Remove markets that disappeared from Capital.com for this connection.
-      if (seenEpics.length > 0) {
-        const orphan = await pool.query(
-          `SELECT id FROM capital_markets
-           WHERE broker_connection_id = $1 AND NOT (epic = ANY($2::text[]))`,
-          [conn.connection_id, seenEpics]
-        );
-        const orphanIds = orphan.rows.map((r) => r.id as number);
-        if (orphanIds.length > 0) {
-          await pool.query(
-            `DELETE FROM account_instrument_settings
-             WHERE broker_account_id = $1 AND instrument_id = ANY($2::int[])`,
-            [conn.account_id, orphanIds]
-          );
-          await pool.query('DELETE FROM capital_markets WHERE id = ANY($1::int[])', [orphanIds]);
-        }
-      }
-
-      await seedAccountInstruments(conn.account_id);
-      await logAudit('admin', 'capital_markets_pulled', 'broker_connection', String(conn.connection_id), null, {
-        count: markets.length,
-        environment: conn.environment,
-      });
-
       return {
         success: true,
-        count: markets.length,
-        sample: markets.slice(0, 8).map((m) => ({ epic: m.epic, name: m.display_name })),
+        count: result.count,
+        mode: result.mode,
+        sample: result.sample,
+        full_sync_scheduled: mode === 'quick',
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Pull markets failed';
